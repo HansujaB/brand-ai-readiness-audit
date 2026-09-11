@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "site",
+    "audited_at",
+    "summary",
+    "findings",
+    "coverage"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "site": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audited_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "total_findings",
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "severity",
+          "evidence",
+          "suggested_action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "suggested_action": {
+            "type": "object",
+            "required": [
+              "summary",
+              "priority"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "priority": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "status",
+        "pages_inspected",
+        "limitations"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "partial",
+            "sampled"
+          ]
+        },
+        "pages_inspected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "pending",
+              "sampled",
+              "partial",
+              "not_run",
+              "not_applicable"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "suggested_actions": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "priority",
+          "evidence"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "priority": {
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "critical"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

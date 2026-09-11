@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "site",
+    "audited_at",
+    "run_metadata",
+    "summary",
+    "findings",
+    "checks",
+    "proactive_suggestions"
+  ],
+  "properties": {
+    "site": {
+      "type": "string"
+    },
+    "audited_at": {
+      "type": "string"
+    },
+    "run_metadata": {
+      "type": "object",
+      "required": [
+        "pages_audited",
+        "capabilities_used",
+        "elapsed_seconds",
+        "request_log"
+      ],
+      "properties": {
+        "pages_audited": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stage_status": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "pending",
+              "sampled",
+              "partial",
+              "not_run",
+              "not_applicable"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "total_findings",
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "check_id",
+          "entity",
+          "resource",
+          "root_cause",
+          "title",
+          "severity",
+          "evidence",
+          "evidence_items",
+          "affected_urls",
+          "category",
+          "confidence",
+          "confidence_reason",
+          "suggested_action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "check_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "confidence_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "enum": [
+              "discoverability",
+              "engagement"
+            ]
+          },
+          "affected_urls": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "suggested_action": {
+            "$ref": "#/$defs/action"
+          },
+          "entity": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "resource",
+          "status",
+          "reason",
+          "evidence_items"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "unknown",
+              "not_applicable",
+              "not_run"
+            ]
+          },
+          "evidence_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "check_id": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "proactive_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "resource",
+          "evidence_items",
+          "suggested_action",
+          "limitation"
+        ],
+        "properties": {
+          "suggested_action": {
+            "$ref": "#/$defs/action"
+          },
+          "evidence_items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "check_id": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "limitation": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "fact_extraction_tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question",
+          "status",
+          "evidence_items"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "unknown"
+            ]
+          },
+          "evidence_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/evidence"
+            }
+          }
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "entity",
+          "attribute",
+          "value",
+          "unit",
+          "source_url",
+          "evidence_span"
+        ],
+        "properties": {
+          "entity": {
+            "type": "string"
+          },
+          "attribute": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "evidence_span": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "claim_comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "entity",
+          "status",
+          "evidence_items"
+        ],
+        "properties": {
+          "entity": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unknown",
+              "regional_difference",
+              "historical_difference",
+              "consistent",
+              "contradiction"
+            ]
+          },
+          "evidence_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/evidence"
+            }
+          }
+        }
+      }
+    },
+    "visitor_journeys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_url",
+          "question",
+          "status"
+        ],
+        "properties": {
+          "source_url": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "unknown",
+              "not_run"
+            ]
+          }
+        }
+      }
+    },
+    "local_rewrite_tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question",
+          "original",
+          "proposed_rewrite",
+          "all_source_spans_preserved",
+          "missing_before",
+          "missing_after"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "original": {
+            "type": "string"
+          },
+          "proposed_rewrite": {
+            "type": "string"
+          },
+          "all_source_spans_preserved": {
+            "type": "boolean"
+          },
+          "missing_before": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_after": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": [
+        "source_url",
+        "representation",
+        "quote",
+        "observed_at"
+      ],
+      "properties": {
+        "source_url": {
+          "type": "string"
+        },
+        "representation": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": "string"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "summary",
+        "priority",
+        "verification"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
