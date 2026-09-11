@@ -1,67 +1,52 @@
-# brand-ai-readiness-audit
+# Brand AI readiness audit
 
-An Agent Skill Marketplace that audits a website for two things at once:
+Four skills diagnose machine access, lost fact context, conflicting claims and observed visitor-journey obstacles. The Python runner shares one robots-enforcing evidence collector and emits a validated JSON report. It never modifies the audited site.
 
-1. **AI discoverability** — will search crawlers and AI assistants (ChatGPT, Perplexity, Claude, etc.) find, correctly read, and trust this brand's facts enough to cite them?
-2. **On-site engagement** — once a visitor (human or AI-assistant-driven) actually lands on the page, does the page give them a reason to stay?
+| Skill | Responsibility |
+|---|---|
+| audit-orchestrator | Shared evidence, coverage, deadlines, deduplication, prioritization and schema validation |
+| crawl-render-audit | Access, indexability, raw/rendered facts, media and markup consistency |
+| freshness-corroboration | Fact extraction stress tests, scoped claims, identity and external evidence |
+| engagement-audit | Visitor questions, visible actions, mobile obstacles and performance observations |
 
-Given a URL, the marketplace returns one structured JSON report: findings (each with evidence and a severity) plus prioritized suggested actions, including proactive suggestions that go beyond any defect found.
+## Run
 
-**Recommend-only.** Every skill in this marketplace is read-only. Nothing here authenticates against, modifies, or rate-abuses the target site, and every crawl step respects `robots.txt`.
+Keep the whole marketplace together: standalone entrypoints import the root auditlib package.
 
-## Why four skills instead of one
-
-The decomposition follows a genuine separation of concerns — each skill answers a structurally different question with different evidence sources, rather than splitting arbitrarily:
-
-| Skill | Question it answers | Appendix concepts covered |
-|---|---|---|
-| `crawl-render-audit` | Can a machine even reach and read this content? | A (crawl access), C (render gap, structured data) |
-| `freshness-corroboration` | Would a machine trust and correctly attribute this content? | D (cross-web consensus, entity disambiguation), B (extractability) |
-| `engagement-audit` | Does a visitor who arrives have a reason to stay? | Round 2 engagement synthesis (not in the appendix — above-fold clarity, CTA, load, mobile, orientation, help affordance, readability) |
-| `audit-orchestrator` (**entrypoint**) | Composes the above three into one report | — orchestration only, no checks of its own |
-
-`crawl-render-audit` and `freshness-corroboration` could theoretically be one "discoverability" skill, but they use genuinely different evidence sources and tools — one is pure structural HTML/HTTP analysis, the other requires live web search and search-result judgment — so keeping them separate lets each stay focused and lets a caller invoke just one if that's all they need (e.g. "just check corroboration for this one fact" doesn't need a crawl audit).
-
-## How the entrypoint composes the others
-
-`audit-orchestrator`:
-1. Validates the URL and discovers a small representative page sample (homepage + up to a few key pages: pricing, product, blog, about).
-2. Runs `crawl-render-audit`, `freshness-corroboration`, and `engagement-audit` against that shared page list.
-3. Merges their findings, de-duplicating overlapping evidence, and assigns stable `F-00N` ids ordered by severity then by fix effort.
-4. Adds a small number of proactive, mechanism-grounded suggestions beyond any detected defects.
-5. Runs an explicit self-check against the three graded failure modes (false positives, overfitting, padding) before finalizing.
-6. Emits one JSON report matching `skills/audit-orchestrator/references/schema.md` — an extension of the contest's minimum schema (adds `category`, `affected_urls`, `confidence`, `effort`, and a `run_metadata` block documenting what was actually audited and which optional capabilities, like a headless browser or web search, were available).
-
-A reference implementation of that composition exists at `skills/audit-orchestrator/scripts/run_audit.py`, which shells out to each sub-skill's own script (`crawl_check.py`, `entity_check.py`, `engagement_check.py`) and merges their output — useful when Python execution and the unzipped marketplace folder are both available. When they aren't, an agent should follow the same procedure by hand using its own fetch/search tools, per each skill's SKILL.md.
-
-## Design notes / how false positives are guarded against
-
-Every check in every skill's SKILL.md is written as a **trigger + an explicit false-positive guard**, because the rubric singles out false positives and overfitting as the two things to actively avoid. The clearest example: the render-gap check never treats "this site uses a JS framework" as a defect by itself — it always requires actually diffing raw HTML against rendered content, because server-rendered/prerendered JS sites are perfectly fine. The same pattern (trigger → guard) repeats for robots.txt disallows on legitimate private paths, single-sourcing of inherently proprietary facts, thin `sameAs` on unambiguous brand names, and dense text for genuinely technical audiences.
-
-We deliberately avoided importing any of the oddly-precise numeric thresholds that show up in some secondary "research" write-ups floating around this space (e.g. a specific millisecond cutoff for page load, or an exact citation-rate percentage by content type) — those numbers aren't independently verifiable, and hard-coding unverifiable precision is itself a false-positive risk on sites that are merely unusual rather than actually broken. Where a check needs a numeric judgment call (e.g. "is this render gap substantial," "is this load time slow"), the relevant script reports the raw evidence and the SKILL.md asks for a materiality judgment relative to the page's own context, not a universal magic number.
-
-## Running it
-
-```bash
-python skills/audit-orchestrator/scripts/run_audit.py https://example.com --depth standard
+```sh
+python -m pip install -r requirements.txt
+python skills/audit-orchestrator/scripts/run_audit.py https://example.com --brand "Example" --depth standard --output report.json
 ```
 
-`--depth quick|standard|deep` trades off thoroughness against the ~5 minute runtime target. `quick` skips external corroboration search entirely; `standard` samples a handful of key pages; `deep` samples more pages and should only be used when a longer run is acceptable.
+Optional browser/PDF capabilities:
 
-Each sub-skill's script can also be run standalone:
-
-```bash
-python skills/crawl-render-audit/scripts/crawl_check.py https://example.com
-python skills/freshness-corroboration/scripts/entity_check.py https://example.com
-python skills/engagement-audit/scripts/engagement_check.py https://example.com
+```sh
+python -m pip install -r requirements-optional.txt
+python -m playwright install chromium
 ```
 
-Dependencies: `requests`, `beautifulsoup4`, `lxml` (for sitemap XML parsing). `playwright` is optional — the render-gap check in `crawl-render-audit` degrades gracefully to a documented manual fallback if it isn't installed. Cross-web corroboration search and entity-collision search (in `freshness-corroboration`) are not scripted at all — they require a live search tool and are meant to be run by whatever agent invokes this skill, using its own web-search capability.
+Use `--no-browser` to disable rendering. Use `--facts-file facts.json` for 3–5 question/terms/context records and `--search-results sources.json` for a researcher-grouped external sample. See [the input and report contract](skills/audit-orchestrator/references/schema.md). Every command emits a compact owner report; --diagnostics-output retains detailed evidence separately.
 
-## Compliance
+Quick/standard/deep sample up to 1/5/9 pages under one 270-second work budget. The supervisor enforces a whole-process deadline and preserves partial reports. `--budget 30` is useful for bounded smoke checks. A deeper sample does not remove the time limit. No five-minute performance guarantee is assumed without measurement.
 
-- Every skill folder is an independently valid `agentskills.io` SKILL.md (name, description, license, etc.).
-- `marketplace.json` lists all four skills with exactly one `entrypoint: true`.
-- No skill writes to, authenticates against, or rate-abuses the target site.
-- All crawling respects `robots.txt`.
-- No model weights are bundled; the zip is well under the 50MB limit.
+## Evidence and limitations
+
+Owner findings contain ID, title, severity, evidence and suggested action, with a small coverage statement. Detailed evidence, verification steps, request logs, confidence and journey checks are in the optional diagnostics report. See skills/engagement-audit/references/implementation.md for the engagement review changes.
+
+Training opt-outs do not become search defects. Missing schema, missing dates, absent sameAs, absent browser/search and a small site without a sitemap do not automatically produce findings. Raw/rendered checks compare substantive facts, not text length. Claim comparisons separate contradictions, historical differences, regional differences and insufficient scope.
+
+Fact tests preserve headings/table headers and test supplied context. Automatic candidates currently focus on prices and return windows; other facts need explicit questions. Extractive drafts preserve source spans; this is not an independent answer-quality evaluation. External source imports support capped corroboration, ownership and syndicated-group deduplication; live search is performed by the calling agent, not silently claimed by the runner. Unknown ownership never establishes independence.
+
+Browser observations inspect desktop/mobile actions, accessible names and obstruction without clicks or form submission. English/Hindi candidate labels are supported; broader language semantics need review. Public navigation candidates do not prove a complete conversion journey. Returning-user personalization is unobserved. HTTP timing, instrumented browser lab metrics and real-user field metrics are separate. No actual bounce rate, commercial assistant ranking gain or complete semantic correctness is inferred.
+
+The network layer checks public addresses and redirects, disables environment credentials/proxies and cookies, and blocks transactional paths/non-GET browser traffic. Connections are pinned to validated public IP addresses while retaining TLS hostname verification. Redirected browser subresources that cannot be safely replayed are aborted and reported as partial coverage. The auditable request log supports prohibited-request checks.
+
+## Validate
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+Browser regression tests require Playwright and Chromium. Paired fixtures do not establish real-world generalization; use separate temporary live smoke reports. The obsolete extractor benchmark and generated reports were removed.
+
+Download limits are configurable: `--max-response-mb 20 --max-download-mb 100` sets the default decimal-MB allowances for decoded response bodies. All HTTP/browser requests share the total budget and deadline; cache hits count once. Oversized responses are reported as incomplete coverage with observed byte counts, never site defects. Dependent stages are not_run when no complete page was collected.
