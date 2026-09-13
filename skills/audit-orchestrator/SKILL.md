@@ -7,7 +7,9 @@ metadata:
 allowed-tools: Read Write Bash
 ---
 
-Use this entrypoint for a complete audit. Read the three specialist SKILL.md files for their decision procedures and [the report contract](references/schema.md). Compose their checks once through the shared runner.
+For use by an AI agent only. You are the marketplace's designated entrypoint: follow these instructions, compose the specialist checks, review their evidence and emit the final report. Bundled Python scripts are supporting tools; running a script alone does not complete this skill's audit or perform your required review.
+
+Read the three specialist SKILL.md files for their decision procedures and [the report contract](references/schema.md). Compose their checks once through the shared runner.
 
 1. Start one five-minute deadline for collection, review and final validation. Establish one country/language from the request, URL or published website metadata; never silently assume India. Follow only the supplied URL's exact origin (scheme, hostname and effective port), including assets, robots.txt and redirects. Do not fetch news or outside publishers.
 2. Run `python skills/audit-orchestrator/scripts/run_audit.py URL --budget 210` from the marketplace root, adding country/language options when supplied. It writes one `<company>_report.json`; use `--brand` for a supplied company name. The workflow samples up to twelve initial pages, three information follow-ups and three representative browser pages. Discovery prioritizes different purposes, then several distinct products or services before pagination. Use `--pages` for relevant same-locale pages when needed; keep collection within the shared deadline.
