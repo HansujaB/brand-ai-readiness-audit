@@ -4,6 +4,8 @@ import unicodedata
 from urllib.parse import urlsplit
 
 PRIORITY = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+MAX_FINDINGS = 8
+MAX_PAGE_EXAMPLES = 3
 
 
 def report_filename(site, brand=None):
@@ -51,7 +53,14 @@ def owner_report(report, component=None):
         else:
             item = groups[key]
             item['pages'] = list(dict.fromkeys(item['pages'] + finding['affected_urls']))
-    findings = [{'id': f'F-{i:03d}', **finding} for i, finding in enumerate(groups.values(), 1)]
+    ordered = sorted(groups.values(), key=lambda f: (PRIORITY[f['severity']], -len(f['pages'])))
+    omitted = max(0, len(ordered) - MAX_FINDINGS)
+    findings = []
+    for i, finding in enumerate(ordered[:MAX_FINDINGS], 1):
+        if len(finding['pages']) > MAX_PAGE_EXAMPLES:
+            finding['evidence'] = short_evidence(f"Across {len(finding['pages'])} affected pages (example links listed): " + finding['evidence'])
+            finding['pages'] = finding['pages'][:MAX_PAGE_EXAMPLES]
+        findings.append({'id': f'F-{i:03d}', **finding})
     result = {'site': report['site'], 'audited_at': report['audited_at'],
         'summary': priority_summary(findings, 'severity', 'total_findings'),
         'improvements_summary': priority_summary([], 'priority', 'total_improvements'),
@@ -71,7 +80,14 @@ def owner_report(report, component=None):
         if key not in improvements or PRIORITY[item['priority']] < PRIORITY[improvements[key]['priority']]:
             improvements[key] = item
     if improvements:
-        result['improvements'] = sorted(improvements.values(), key=lambda i: PRIORITY[i['priority']])[:3]
+        # Equal-priority content advice should not crowd out schema/identity work.
+        pending = list(improvements.items())
+        chosen, families = [], set()
+        while pending and len(chosen) < 3:
+            index = min(range(len(pending)), key=lambda i: (PRIORITY[pending[i][1]['priority']], pending[i][0][0].split('.')[0] in families))
+            key, item = pending.pop(index)
+            families.add(key[0].split('.')[0]); chosen.append(item)
+        result['improvements'] = chosen
         result['improvements_summary'] = priority_summary(result['improvements'], 'priority', 'total_improvements')
 
     metadata = report['run_metadata']
@@ -86,4 +102,7 @@ def owner_report(report, component=None):
         result['note'] = 'The website could not be assessed; no issues were verified.'
     elif incomplete:
         result['note'] = 'Some pages or interactions could not be verified; further issues may remain.'
+    if omitted:
+        selection = f'Showing {len(findings)} priority findings; {omitted} additional findings are not listed'
+        result['note'] = selection + ('; some checks were incomplete.' if incomplete else '.')
     return result

@@ -24,10 +24,14 @@ def page_purpose(page):
         return 'article'
     if re.search(r'/docs?(?:/|$)|/reference|/tutorial', path):
         return 'documentation'
-    if 'Product' in types or re.search(r'/products?/|/p/', path):
+    if local_path in ('', '/'):
+        return 'homepage'
+    if re.search(r'/products?/|/p/', path):
         return 'product'
     if re.search(r'/cat/|/category/|/collections?/', path):
         return 'category'
+    if 'Product' in types or 'ProductGroup' in types:
+        return 'product'
     if re.search(r'/pricing|/plans(?:/|$)', path):
         return 'pricing'
     if types & {'Service', 'ProfessionalService'} or re.search(r'/services?(?:/|$)', path):

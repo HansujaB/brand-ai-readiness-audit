@@ -104,7 +104,7 @@ def schema_checks(page, results):
             'Repair the JSON syntax in the identified block.', 'Parse all JSON-LD blocks and run the relevant rich-result validator.',
             root_cause=hashlib.sha256(quote.encode()).hexdigest(), items=[evidence(page.url, quote, 'structured_data')])
     results.check('schema.formats', page.url, 'pass' if page.formats else 'not_applicable',
-        'Observed formats: ' + ', '.join(sorted(set(page.formats))) if page.formats else 'No recognized markup; absence alone is not a defect.')
+        'Observed formats: ' + ', '.join(sorted(set(page.formats))) if page.formats else 'No recognized markup; page-specific coverage is checked separately.')
     for limitation in page.markup_limits:
         results.check('schema.scope', page.url, 'unknown', limitation)
     invalid = []
@@ -114,8 +114,8 @@ def schema_checks(page, results):
     if invalid:
         results.finding('schema.invalid_price', page.url, 'Structured offer price is not a valid number', 'Invalid offer price values: ' + ', '.join(sorted(set(invalid))),
             'Use a non-negative numeric price and a separate ISO currency code for the applicable offer.', 'Validate the offer against visible product details.', severity='medium')
-    if not page.formats and page.purpose in ('product','pricing','article'):
-        results.suggest('schema.contextual', page.url, 'Page purpose: ' + page.purpose, 'Consider applicable structured data for confirmed visible facts.', 'Use the search feature validator; markup does not guarantee visibility.')
+    # Page-type coverage and required properties are checked across the final
+    # sample by structured.coverage_checks, including observed injected markup.
     # Compare only a named Product with its own single Offer and explicitly marked visible price.
     from .freshness import has_type
     products = [n for n in page.nodes if has_type(n, 'Product')]

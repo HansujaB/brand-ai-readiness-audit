@@ -156,29 +156,40 @@ def owner_report(report):
     return compact(report, 'freshness')
 
 
-def prioritize_links(links, seen=()):
+def prioritize_links(links, seen=(), counts=None):
     """Take one URL per useful page class before repeats consume the sample."""
     buckets = {}
-    for url in dict.fromkeys(links):
+    from urllib.parse import parse_qs
+    for url in sorted(dict.fromkeys(links), key=lambda u: bool(urlsplit(u).query)):
         path = urlsplit(url).path.lower()
         kind = next((name for name, pattern in (
             ('product', r'/products?/|/p/'), ('category', r'/cat/|/category/|/collections?/|/shop(?:/|$)'),
             ('pricing', r'pricing|plans'), ('returns', r'return|refund'), ('delivery', r'shipping|delivery'),
             ('service', r'/services?/'), ('article', r'/blogs?/|/articles?/'),
-            ('about', r'/about(?:/|$)'), ('support', r'/contact|/support|/help|/faq')) if re.search(pattern, path)), 'other')
+            ('informational', r'/about(?:/|$)'), ('support', r'/contact|/support|/help|/faq')) if re.search(pattern, path)), 'other')
+        if any(k in parse_qs(urlsplit(url).query) for k in ('page', 'sort_by', 'filter', 'variant')):
+            kind = 'pagination'
         buckets.setdefault(kind, []).append(url)
-    order = ('product', 'category', 'pricing', 'returns', 'delivery', 'service', 'about', 'support', 'article', 'other')
+    order = ('product', 'category', 'pricing', 'returns', 'delivery', 'service', 'informational', 'support', 'article', 'other', 'pagination')
     order = sorted(order, key=lambda kind:kind in seen)
+    if counts is not None:
+        # New purposes first, then several distinct offerings before pagination.
+        order = sorted(order, key=lambda k: (2 if k == 'pagination' else
+            0 if counts.get(k, 0) == 0 else 1 if k in ('product', 'service', 'pricing') and counts[k] < 3 else 2))
     first = [buckets[k].pop(0) for k in order if buckets.get(k)]
     return first + [u for k in order for u in buckets.get(k, [])]
 
 
 POLICY_WORDS = {
-    'return_window': r'\breturns?\b|refund|exchange|वापसी|retour|rückgabe|devoluci',
+    'return_window': r'\breturns?\b|exchange|swap|वापसी|retour|rückgabe|devoluci',
+    'refund_window': r'refund|reimburse|store credit',
+    'cancellation_window': r'cancel',
+    'production_window': r'produc(?:tion|ed)|manufactur',
+    'dispatch_window': r'dispatch|\bships?\b|shipped',
     'delivery_window': r'deliver|shipping|dispatch|डिलीवरी|वितरण|livraison|liefer|entrega|envío',
     'warranty_window': r'warranty|guarantee|वारंटी|garantie|garantía',
 }
-DURATION = re.compile(r'(\d+(?:\s*[-–]\s*\d+)?)\s*(business\s+days?|working\s+days?|days?|weeks?|months?|years?|दिन|सप्ताह|महीने|साल|jours?|semaines?|mois|ans?|tage[ns]?|wochen|monate[ns]?|jahre[ns]?|días?|semanas?|meses|años?)\b', re.I)
+DURATION = re.compile(r'(\d+(?:\s*[-–]\s*\d+)?)\s*(business\s+days?|working\s+days?|hours?|days?|weeks?|months?|years?|दिन|सप्ताह|महीने|साल|jours?|semaines?|mois|ans?|tage[ns]?|wochen|monate[ns]?|jahre[ns]?|días?|semanas?|meses|años?)\b', re.I)
 
 
 def extract_policy_claims(page, brand):
@@ -195,12 +206,20 @@ def extract_policy_claims(page, brand):
             if len(matches) != 1:
                 continue
             kinds = [k for k, pattern in POLICY_WORDS.items() if re.search(pattern, sentence, re.I)]
+            if 'delivery_window' in kinds and any(k in kinds for k in ('return_window','refund_window','cancellation_window','warranty_window')):
+                kinds.remove('delivery_window')  # "return within 7 days of delivery"
+            if 'dispatch_window' in kinds and 'delivery_window' in kinds:
+                if re.search(r'(?:after|once|from)\s+(?:it\s+is\s+|the\s+order\s+is\s+)?(?:dispatch|shipped)|deliver\w*\s+within', sentence, re.I):
+                    kinds.remove('dispatch_window')
+                else:
+                    kinds.remove('delivery_window')
             if len(kinds) != 1:
                 continue
             match = matches[0]
             signature = norm(sentence[:match.start()] + '{duration}' + sentence[match.end():]).rstrip('.।')
             value, unit = re.sub(r'\s+', '', match[1]).replace('–','-'), norm(match[2])
             unit = re.sub(r's$', '', unit)
+            unit = unit.replace('working day', 'business day')
             key = (kinds[0], signature, value, unit)
             if key in seen:
                 continue
@@ -225,7 +244,15 @@ def compare_site_claims(claims, results):
     policies = [c for c in claims if c['attribute'] in POLICY_WORDS]
     for i, left in enumerate(policies):
         for right in policies[i+1:]:
-            if left['source_url'] == right['source_url'] or left['entity'] != right['entity'] or left['attribute'] != right['attribute']:
+            if left['source_url'] == right['source_url'] or left['attribute'] != right['attribute']:
+                continue
+            if left['entity'] != right['entity']:
+                if left['region'] == right['region'] and left['value'] != right['value'] and (
+                        left['entity'].startswith('site:') != right['entity'].startswith('site:')):
+                    results.review('claims.product_policy_scope', left['source_url'],
+                        'Does the general policy apply to this product\'s ' + left['attribute'].replace('_', ' ') + '?',
+                        'A product and the website policy publish different durations for this event; check product exceptions before declaring a conflict.',
+                        [evidence(c['source_url'], c['evidence_span'], observed_at=c['observed_at']) for c in (left,right)])
                 continue
             if left.get('historical') or right.get('historical'):
                 status = 'historical_difference'

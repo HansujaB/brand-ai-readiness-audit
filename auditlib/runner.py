@@ -125,7 +125,7 @@ def audit(site, brand=None, facts=None, extra_pages=None, browser=True,
             results.stage_status[stage] = 'sampled'
         save()
     save()
-    limit = 9
+    limit = 12
     queue, attempted, collected = [site] + list(extra_pages or []), set(), set()
     discovery_done = False
 
@@ -236,10 +236,15 @@ def audit(site, brand=None, facts=None, extra_pages=None, browser=True,
             inspect(page)
             links = [a['url'] for a in sorted(page.links, key=lambda a:not a['in_main']) if a['url'].startswith(('http://', 'https://')) and scope.allows(a['url']) and not excluded_url(a['url'])]
             queue[:] = prioritize_links([u for u in links + queue if u not in attempted and u not in collected],
-                                        seen={p.purpose for p in pages})
+                                        seen={p.purpose for p in pages},
+                                        counts={kind:sum(p.purpose == kind for p in pages) for kind in {p.purpose for p in pages}})
     with collector.allowance(budget * .35, min(60, max(4, int(collector.max_requests * .3)))):
         safe('collection', site, collect)
     finish('collection')
+    if pages and 'crawl' in required:
+        from .discovery import link_checks
+        with collector.allowance(min(10, budget * .06), 8):
+            safe('crawl', site, lambda: link_checks(pages, collector, results))
     if pages and 'engagement' in required:
         with collector.allowance(budget * .10, min(12, max(2, int(collector.max_requests * .1)))):
             for page in list(pages):
@@ -252,6 +257,14 @@ def audit(site, brand=None, facts=None, extra_pages=None, browser=True,
         safe('claims', site, lambda: compare_site_claims(results.claims, results))
         finish('claims')
     if pages and 'crawl' in required:
+        from .discovery import content_checks
+        from .structured import coverage_checks
+        # Preserve inexpensive SEO evidence before browser work can time out.
+        before = (len(results.findings), len(results.suggestions), len(results.checks), len(results.reviews))
+        safe('crawl', site, lambda: content_checks(pages, results))
+        safe('crawl', site, lambda: coverage_checks(pages, results))
+        preliminary = [items[start:] for items, start in zip(
+            (results.findings, results.suggestions, results.checks, results.reviews), before)]
         finish('crawl')
     if pages and 'render' in required:
         # One representative of each purpose gets a complete resource allowance first.
@@ -285,6 +298,14 @@ def audit(site, brand=None, facts=None, extra_pages=None, browser=True,
                 safe('engagement', page.url, lambda p=page: engagement_checks(p, results, rendered_only=True))
     if pages and 'engagement' in required:
         finish('engagement')
+    if pages and 'crawl' in required:
+        # Replace provisional coverage so observed injected markup can clear a
+        # raw-HTML gap without discarding positive checks from other specialists.
+        for items, old in zip((results.findings, results.suggestions, results.checks, results.reviews), preliminary):
+            old_ids = {id(item) for item in old}
+            items[:] = [item for item in items if id(item) not in old_ids]
+        safe('crawl', site, lambda: content_checks(pages, results))
+        safe('crawl', site, lambda: coverage_checks(pages, results))
     if pages and 'facts' in required:
         def inspect_facts():
             selected = candidates(pages, brand, facts)

@@ -252,7 +252,15 @@ def stress_tests(pages, facts, brand, results):
             'excerpt': excerpt, 'dimensions': dimensions, 'missing_context': missing, 'unsupported_context': unsupported,
             'representations': {'raw_html': 'matched', 'rendered': {name: all(t in norm(r['text']) for t in terms) for name, r in page.rendered.items()}},
             'limitation': 'Deterministic term/context preservation, not a semantic answer correctness score.', 'evidence_items': items})
-        if missing:
+        # Inferred "only" clauses in unrelated FAQs are review leads. Explicit
+        # billing/eligibility sections tied to a single offer remain testable.
+        conditions = [b for b in page.blocks if re.search(r'condition|billing|eligibility|terms|exception', b['heading'], re.I)]
+        grounded = not fact.get('inferred') or all(any(norm(v) in norm(b['text']) for b in conditions) for v in missing.values())
+        if missing and not grounded:
+            results.fact_tests[-1]['status'] = 'unknown'
+            results.review('facts.context_scope', page.url, question,
+                'Extracted clauses may qualify other offers or FAQ answers; their applicability is not established.', items)
+        if missing and grounded:
             results.finding('facts.context_loss', page.url, 'An isolated fact excerpt loses qualifying context',
                 excerpt + ' | Missing context: ' + json.dumps(missing, ensure_ascii=False),
                 'Keep the answer, entity, units and applicable conditions in the same accessible content block.',

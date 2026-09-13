@@ -151,7 +151,7 @@ class DiagnosticTests(unittest.TestCase):
         c = collector({SITE+'robots.txt': response(''), SITE: response(fixture('no_schema'))})
         report = audit(SITE, collector=c, browser=False)
         validate_report(report)
-        self.assertFalse(report['findings'])
+        self.assertFalse(any(f['check_id'].startswith(('render.', 'performance.')) for f in report['findings']))
         self.assertIn('not_run', [c['status'] for c in report['checks'] if c['check_id'] == 'render.browser'])
         self.assertFalse(report['run_metadata']['capabilities_used']['headless_browser'])
 
@@ -167,7 +167,7 @@ class DiagnosticTests(unittest.TestCase):
         c = collector({SITE+'robots.txt': response(''), SITE: response('<main><h1>Home</h1><a href="/returns">Return policy</a></main>')})
         c.cache[SITE] = {**response('<main><h1>Product</h1><a href="/returns">Return policy</a></main><script type="application/ld+json">{"@type":"Product"}</script>'), 'url':SITE, 'state':'ok'}
         report = audit(SITE, collector=c, browser=False)
-        self.assertTrue(any(f['check_id']=='journey.broken_information_link' for f in report['findings']))
+        self.assertTrue(any(f['check_id']=='seo.link_broken' and f['entity']==SITE+'returns' for f in report['findings']))
         self.assertEqual(sum(x['url']==SITE+'returns' for x in c.log), 1)
 
     def test_automatic_context_dimensions(self):

@@ -34,7 +34,8 @@ Terms and context are literal website evidence, not words guessed from the quest
 Write one `<company>_report.json` in the current directory, for example `ikea_report.json` or `lifestyle_report.json`. Use `--brand` when provided, otherwise the first accepted page's published site name, then its domain as fallback. The runner normalizes the company name to a safe lowercase filename with underscores and prints that name. The CLI has no output-path or diagnostics-export option. The public contract is [owner.schema.json](owner.schema.json):
 
 - Required top-level fields: `site`, `audited_at`, `summary`, `improvements_summary`, `findings`.
-- Summary: `total_findings`, `critical`, `high`, `medium`; include `low` when applicable (zero is also allowed).
+- List at most eight priority findings and three example page URLs per finding, after merging repeated fixes. If more findings were confirmed, disclose the omitted count in `note`; detailed evidence stays internal.
+- Summary counts only listed findings: `total_findings`, `critical`, `high`, `medium`; include `low` when applicable (zero is also allowed).
 - Improvements summary: `total_improvements`, `critical`, `high`, `medium`, `low`. Count only the improvements included in this report, not discarded candidates, and include zeros when none are listed. These counts are separate from confirmed findings.
 - Each finding: `id`, `title`, `severity`, `evidence`, `suggested_action`. The action contains `summary`, `priority` and a short `verification` when available. Write two or three concise sentences describing the actual change and affected content, then one sentence explaining how to verify success.
 - Optional `pages` on a finding identifies affected pages. Merge repeated instances of the same fix while preserving different causes or entities.
@@ -47,6 +48,6 @@ Validate the actual filename printed by the runner, for example `python skills/a
 
 ## Runtime
 
-There is one full workflow with no depth selector. Collection targets nine initial pages and up to three information follow-ups. Browser work targets three representative pages at desktop and mobile widths. Limits are 400 requests, 20 MB per response, 100 MB decoded downloads and at most 270 work seconds plus bounded supervisor shutdown. `--max-requests`, `--max-response-mb`, `--max-download-mb` and `--budget` adjust these limits. Sitemap discovery has a separate 2 MB allowance; ordinary links come first.
+There is one full workflow with no depth selector. Collection targets twelve initial pages and up to three information follow-ups, seeking several distinct offerings before pagination. Important-link/canonical verification reuses cached responses and adds at most eight targets within ten seconds of the shared budget. Browser work targets three representative pages at desktop and mobile widths. Limits are 400 requests, 20 MB per response, 100 MB decoded downloads and at most 270 work seconds plus bounded supervisor shutdown. `--max-requests`, `--max-response-mb`, `--max-download-mb` and `--budget` adjust these limits. Sitemap discovery has a separate 2 MB allowance; ordinary links come first.
 
 The skill starts a single five-minute deadline before collection and normally gives the runner 210 seconds. All targeted review and final validation must fit the remainder. Do not create extra evidence files or launch a fresh broad audit after the runner finishes. Runtime limitations stay internal except for a short business-relevant note when necessary.

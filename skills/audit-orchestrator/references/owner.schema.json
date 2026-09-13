@@ -88,10 +88,12 @@
             "items": {
               "type": "string",
               "minLength": 1
-            }
+            },
+            "maxItems": 3
           }
         }
-      }
+      },
+      "maxItems": 8
     },
     "improvements": {
       "type": "array",

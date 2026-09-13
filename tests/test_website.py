@@ -24,7 +24,7 @@ class WebsiteScopeTests(unittest.TestCase):
         with patch('auditlib.runner.render_pages',return_value=False) as render:
             report=audit(SITE,collector=c)
         metadata=report['run_metadata']
-        self.assertEqual(len(metadata['pages_audited']),9)
+        self.assertEqual(len(metadata['pages_audited']),12)
         self.assertNotIn('depth',metadata)
         render.assert_called_once()
         selected,_,_,enabled=render.call_args.args

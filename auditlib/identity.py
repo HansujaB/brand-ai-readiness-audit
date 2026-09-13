@@ -32,6 +32,15 @@ def identity_checks(pages, brand, results):
     results.check('identity.context', pages[0].url, 'pass' if identifying else 'unknown',
         'Website organization identity evidence collected.' if identifying else 'No structured organization identity resolved; inspect visible about/contact content.',
         [evidence(p.url, str(n), 'structured_data') for p,n in identifying[:3]])
+    if not identifying:
+        # A site-level opportunity backed by its own published identity, rather
+        # than a claim that every business must have a particular schema type.
+        homepage = next((p for p in pages if p.purpose == 'homepage'), None)
+        if homepage and published_brand(homepage):
+            results.suggest('identity.organization', homepage.url,
+                'The site publishes the name ' + published_brand(homepage) + ' but no collected organization entity links its name to a website URL, address or identity reference.',
+                'Describe the business on its homepage or About page with Organization or an applicable subtype. Connect its published name, website and available contact details using one consistent identifier.',
+                'Check that the organization details match the visible business information and that product pages reference the same business.', priority='medium')
     by_id = {}
     for page, node in observations:
         key = node.get('@id')
