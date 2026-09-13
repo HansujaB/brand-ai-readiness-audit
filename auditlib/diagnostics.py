@@ -29,6 +29,7 @@ class Results:
     def __init__(self):
         self.findings, self.checks, self.suggestions = [], [], []
         self.fact_tests, self.claims, self.comparisons, self.journeys, self.rewrites = [], [], [], [], []
+        self.reviews = []
 
     def check(self, check_id, url, status, reason, items=None):
         self.checks.append({'check_id': check_id, 'resource': url, 'status': status,
@@ -45,11 +46,16 @@ class Results:
                 'effort': 'medium', 'verification': verification}})
         self.check(check_id, url, 'fail', title, items)
 
-    def suggest(self, check_id, url, quote, action, verification):
+    def suggest(self, check_id, url, quote, action, verification, priority='low', effort='low', items=None):
         self.suggestions.append({'check_id': check_id, 'resource': url,
-            'evidence_items': [evidence(url, quote)], 'suggested_action': {'summary': action,
-                'priority': 'low', 'effort': 'low', 'verification': verification},
+            'evidence_items': items or [evidence(url, quote)], 'suggested_action': {'summary': action,
+                'priority': priority, 'effort': effort, 'verification': verification},
             'limitation': 'An evidence improvement hypothesis; no commercial assistant visibility gain is established.'})
+
+    def review(self, check_id, url, question, reason, items=None, next_step=None):
+        self.reviews.append({'check_id': check_id, 'source_url': url, 'question': question,
+            'reason': reason, 'evidence_items': items or [],
+            'next_step': next_step or 'Inspect the cited page and its linked policy or specification in the selected locale; resolve scope before recommending a correction.'})
 
 
 def json_nodes(value):
@@ -83,7 +89,9 @@ class Page:
         self.lang = (self.soup.html.get('lang', 'und') if self.soup.html else 'und').lower()
         base = self.soup.find('base', href=True)
         self.base_url = urljoin(self.url, base['href']) if base else self.url
-        self.links = [{'url': urljoin(self.base_url, a['href']), 'name': a.get('aria-label') or a.get_text(' ', strip=True)} for a in self.soup.select('a[href]')]
+        self.links = [{'url': urljoin(self.base_url, a['href']), 'name': a.get('aria-label') or a.get_text(' ', strip=True),
+                       'in_main': bool(a.find_parent(['main','article']) or a.find_parent(attrs={'role':'main'}))}
+                      for a in self.soup.select('a[href]')]
         visible = BeautifulSoup(str(self.soup), 'html.parser')
         for element in visible.select('script,style,template,[hidden],[aria-hidden="true"]'):
             element.decompose()
@@ -103,11 +111,13 @@ class Page:
             if not text:
                 continue
             scope = element.find_parent(['section', 'article', 'li']) or main
-            heading = scope.find(re.compile(r'^h[1-6]$'))
+            heading = element if re.match(r'^h[1-6]$', element.name) else element.find_previous(re.compile(r'^h[1-6]$'))
             table = element.find_parent('table')
             headers = ' | '.join(h.get_text(' ', strip=True) for h in table.select('th')) if table else ''
             self.blocks.append({'text': text, 'heading': heading.get_text(' ', strip=True) if heading else '',
-                                'headers': headers, 'locator': element.name + ':' + str(index)})
+                                'headers': headers, 'locator': element.name + ':' + str(index),
+                                'section_text': scope.get_text(' ', strip=True), 'section_is_main': scope is main,
+                                'tag': element.name})
         # Pricing cards often use div/span without paragraphs. Retain the closest compact container.
         for textnode in main.find_all(string=MONEY):
             element = textnode.parent
@@ -146,17 +156,43 @@ def candidates(pages, brand, supplied):
     for page in pages:
         for block in page.blocks:
             price = MONEY.search(block['text'])
-            policy = re.search(r'\b(?:return|refund|warranty)\w*\b.{0,70}?\b\d+\s*(?:days?|months?|years?)\b', block['text'], re.I)
-            if not price and not policy:
+            policy = re.search(r'\b(?:return|refund|warranty|deliver|shipping)\w*\b.{0,90}?\b\d+\s*(?:business\s+)?(?:days?|weeks?|months?|years?)\b', block['text'], re.I)
+            detail = re.search(r'\b(?:dimensions?|compatible with|available in|service area|contact us|material|capacity)\b[^.!?]{3,100}', block['text'], re.I)
+            match = price or policy or detail
+            if not match or not block['heading']:
                 continue
-            match = price or policy
-            if not block['heading'] or any(f['terms'] == [match[0], block['heading']] and f['source_url'] == page.url for f in found):
+            if any(f['terms'] == [match[0], block['heading']] and f['source_url'] == page.url for f in found):
                 continue
-            found.append({'question': 'What is the ' + ('price' if price else 'policy') + ' for ' + (block['heading'] or brand) + '?',
-                          'terms': [match[0], block['heading']], 'source_url': page.url, 'locator': block['locator'], 'inferred': True})
-            if len(found) == 5:
-                return found
-    return found
+            found.append({'question': 'What is the ' + ('price and commitment' if price else 'policy and exceptions' if policy else 'specification or service scope') + ' for ' + block['heading'] + '?',
+                'terms': [match[0], block['heading']], 'source_url': page.url, 'locator': block['locator'], 'inferred': True,
+                'context': discover_context(page, block)})
+    # Round-robin across pages so a price-heavy landing page cannot consume all questions.
+    buckets = {}
+    for fact in found:
+        buckets.setdefault(fact['source_url'], []).append(fact)
+    selected = []
+    while any(buckets.values()) and len(selected) < 5:
+        for bucket in buckets.values():
+            if bucket and len(selected) < 5:
+                selected.append(bucket.pop(0))
+    return selected
+
+
+def discover_context(page, block):
+    """Find section qualifications or explicit single-offer terms, excluding footers."""
+    contexts = []
+    price_subjects = {b['heading'] for b in page.blocks if MONEY.search(b['text'])}
+    for other in page.blocks:
+        if other['locator'] == block['locator'] or other.get('tag') in ('h1','h2','h3'):
+            continue
+        same_section = (other.get('section_text') and other.get('section_text') == block.get('section_text')
+                        and (not block.get('section_is_main') or other['heading'] == block['heading']))
+        conditions_section = len(price_subjects) == 1 and re.search(r'condition|billing|eligibility|terms|exception', other['heading'], re.I)
+        qualification = re.search(r'billed\s+(?:annually|monthly)|\bonly\b|exclud|except|subject to|minimum|non.returnable|final sale', other['text'], re.I)
+        if (same_section or conditions_section) and qualification and len(other['text']) < 500:
+            contexts.append(other['text'])
+    contexts = list(dict.fromkeys(contexts))
+    return {('exceptions' if i == 0 else 'condition_' + str(i+1)): text for i,text in enumerate(contexts)}
 
 
 def stress_tests(pages, facts, brand, results):
@@ -178,7 +214,7 @@ def stress_tests(pages, facts, brand, results):
             results.fact_tests.append({'question': question, 'status': 'unknown', 'reason': 'No supporting raw section matched the supplied terms; absence does not prove media locking.',
                                       'rendered_matches': [name for _, name, _ in rendered_matches], 'evidence_items': []})
             for p, name, rendered in rendered_matches[:1]:
-                if not rendered.get('reliable', False):
+                if not rendered.get('content_reliable', rendered.get('reliable', False)):
                     continue
                 if all(t in norm(p.accessible_text) for t in terms):
                     continue
@@ -190,7 +226,7 @@ def stress_tests(pages, facts, brand, results):
                                 items=[evidence(p.url, span, 'rendered_' + name), evidence(p.url, p.accessible_text[:1200], 'raw_accessible_text')])
             continue
         page, block, excerpt = max(matches, key=lambda m: (sum(norm(v) in norm(m[2]) for v in fact.get('context', {}).values()), -len(m[2])))
-        context = dict(fact.get('context', {}))
+        context = {**discover_context(page, block), **fact.get('context', {})}
         if block['heading']:
             context.setdefault('entity', block['heading'])
         amount = MONEY.search(block['text'])
@@ -209,7 +245,7 @@ def stress_tests(pages, facts, brand, results):
         missing = {k: v for k, v in context.items() if norm(v) in norm(page.text) and norm(v) not in norm(excerpt)}
         unsupported = {k: v for k, v in context.items() if norm(v) not in norm(page.text)}
         dimensions = {k: {'expected': context.get(k), 'recoverable': (norm(context[k]) in norm(excerpt)) if k in context else None}
-                      for k in ('entity', 'value', 'unit', 'billing_period', 'region', 'effective_date', 'exceptions')}
+                      for k in dict.fromkeys(('entity', 'value', 'unit', 'billing_period', 'region', 'effective_date', 'exceptions', *context))}
         items = [evidence(page.url, block['text'], locator=block['locator'], observed_at=page.observed_at)]
         items += [evidence(page.url, str(v), locator='context outside selected excerpt') for v in missing.values()]
         results.fact_tests.append({'question': question, 'inferred': fact.get('inferred', False), 'status': 'unknown' if unsupported else 'fail' if missing else 'unknown' if not context.get('entity') or (amount and context.get('unit') in (None, '$')) else 'pass',
@@ -230,7 +266,12 @@ def stress_tests(pages, facts, brand, results):
                                     'missing_after': [k for k, v in context.items() if norm(v) not in norm(rewrite)],
                                     'evidence_items': items, 'result': 'Extractive draft only; span inclusion is not an independent answer-quality test. Review applicability before publishing'})
     if not facts:
-        results.check('facts.stress_test', '', 'unknown', 'No supported price/policy candidates found. Supply 3–5 questions and evidence terms for this site type.')
+        results.check('facts.stress_test', '', 'unknown', 'No supported automatic candidates; use the review queue to build evidence questions.')
+        if pages:
+            results.review('facts.questions', pages[0].url, 'Which concrete visitor questions should this website answer?',
+                'Automatic patterns did not produce supported questions for this content or language.',
+                [evidence(pages[0].url, pages[0].main_text[:700])],
+                'Read the selected-locale homepage and primary service/product page; form questions from published facts, then use --facts-file with exact evidence terms and qualifications.')
 
 
 def compare_claims(claims, results):
@@ -256,20 +297,6 @@ def compare_claims(claims, results):
                     'Re-extract both claims and compare value, region, effective date and exceptions.',
                     severity='high', entity=left['entity'], root_cause=left['attribute'], items=items,
                     confidence='medium', reason='Deterministic scoped extraction; confirm product-specific exclusions before changing content.')
-    # Independent confirmations require explicit ownership/group annotations; unknown is not independent.
-    for claim in [c for c in claims if c['ownership'] == 'brand']:
-        confirmations = set()
-        fingerprints = set()
-        for other in claims:
-            if other['ownership'] != 'independent' or not other['source_group']:
-                continue
-            if all(norm(other.get(k)) == norm(claim.get(k)) for k in ('entity', 'attribute', 'value', 'region', 'effective_date', 'unit', 'billing_period', 'exceptions')):
-                if other['content_fingerprint'] not in fingerprints:
-                    confirmations.add(other['source_group'])
-                    fingerprints.add(other['content_fingerprint'])
-        results.check('claims.corroboration', claim['source_url'], 'pass' if confirmations else 'unknown',
-                      ('Independent source groups: ' + ', '.join(sorted(confirmations))) if confirmations else
-                      'Uncorroborated in sampled evidence; not a defect, especially for brand-authoritative pricing and policy.')
 
 
 def pdf_check(response, results, target_facts):

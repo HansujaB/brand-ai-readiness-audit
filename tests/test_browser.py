@@ -70,11 +70,20 @@ class BrowserTests(unittest.TestCase):
         stress_tests([p],[{'question':'Cost?', 'terms':['₹999'], 'source_url':p.url}],'Acme',results)
         self.assertEqual(len(merge_findings(results.findings)),1)
 
-    def test_redirect_is_cached_and_browser_coverage_is_explicitly_partial(self):
+    def test_redirect_retains_browser_response_url_and_checks_each_hop(self):
         for sample in self.pages['redirected'].rendered.values():
-            self.assertFalse(sample['reliable'])
-            self.assertTrue(any('final evidence is cached' in b['reason'] for b in sample['blocked_requests']))
+            self.assertTrue(sample['content_reliable'])
+            self.assertIn(SITE+'new-endpoint', sample['text'])
         self.assertIn(SITE+'new-endpoint', self.collector.cache)
+
+    def test_redirected_denied_resource_never_reaches_collector_transport(self):
+        html='<main><h1>Public</h1><p>Visible product information.</p></main><script>fetch("/old").catch(()=>{})</script>'
+        p=page(html,SITE+'redirect-policy')
+        c=collector({SITE+'robots.txt':response('User-agent: *\nDisallow: /secret'),p.url:response(html),SITE+'old':response('',302,{'location':SITE+'secret'})})
+        render_pages([p],c,Results())
+        self.assertFalse(any(x['url']==SITE+'secret' for x in c.log))
+        self.assertTrue(all(s['content_reliable'] for s in p.rendered.values()))
+        self.assertTrue(any('/secret' in b['url'] for s in p.rendered.values() for b in s['blocked_requests']))
 
     def test_native_disclosure_does_not_submit_forms(self):
         samples=self.pages['disclosures'].rendered
@@ -82,6 +91,73 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(all(s['disclosures'] for s in samples.values()))
         self.assertTrue(all(any(d.get('control')=='Menu' and d.get('before') != d.get('after') for d in s['disclosures']) for s in samples.values()))
         self.assertTrue(all(any(d.get('status')=='observed' for d in s['disclosures']) for s in samples.values()))
+
+    def test_decorative_image_failure_preserves_readable_content(self):
+        html='<main><h1>Product</h1><p>INR 999 with standard specifications.</p></main><footer><img alt="" src="/pixel.png"></footer>'
+        p=page(html,SITE+'products/decorative')
+        c=collector({SITE+'robots.txt':response(''),p.url:response(html)})
+        original=c.transport
+        def unavailable(url):
+            if url.endswith('/pixel.png'):
+                raise OSError('Decorative image unavailable')
+            return original(url)
+        c.transport=unavailable
+        render_pages([p],c,Results())
+        for sample in p.rendered.values():
+            self.assertIn('INR 999',sample['text'])
+            self.assertTrue(sample['content_reliable'])
+            self.assertTrue(sample['visual_reliable'])
+            self.assertTrue(sample['blocked_requests'])
+
+    def test_all_foreign_browser_resources_and_redirects_stay_off_network(self):
+        foreign = ['https://cdn.example.com/app.js', 'https://assets.example.net/theme.css',
+                   'https://images.example.net/pixel.png', 'https://api.example.com/data',
+                   'https://www.googletagmanager.com/gtm.js', 'https://redirect.example.net/data']
+        html = ('<link rel="stylesheet" href="'+foreign[1]+'"><main><h1>Product</h1><p id="price">Waiting</p></main>'
+                '<img src="'+foreign[2]+'"><script src="'+foreign[0]+'"></script><script src="'+foreign[4]+'"></script>'
+                '<script src="/price.js"></script><script>fetch("'+foreign[3]+'").catch(()=>{});fetch("/redirect-asset").catch(()=>{})</script>')
+        p=page(html,SITE+'products/origin')
+        c=collector({SITE+'robots.txt':response(''),p.url:response(html),
+                     SITE+'price.js':response('document.querySelector("#price").textContent="INR 999"',headers={'content-type':'application/javascript'}),
+                     SITE+'redirect-asset':response('',302,{'location':foreign[5]})})
+        validated=[]
+        original=c.validator
+        def validate(url):
+            validated.append(url)
+            return original(url)
+        c.validator=validate
+        render_pages([p],c,Results())
+        self.assertEqual(len(p.rendered),2)
+        self.assertTrue(all(x['url'].startswith(SITE) for x in c.log))
+        self.assertTrue(all(url.startswith(SITE) for url in validated))
+        for sample in p.rendered.values():
+            self.assertIn('INR 999',sample['text'])
+            self.assertTrue(sample['content_reliable'])
+            self.assertFalse(sample['visual_reliable'])
+            self.assertFalse(sample['absence_reliable'])
+            exclusions={b['url'] for b in sample['blocked_requests'] if 'supplied URL origin' in b['reason']}
+            self.assertTrue(set(foreign).issubset(exclusions), exclusions)
+
+    def test_denied_iframe_does_not_invalidate_main_document_text(self):
+        html='<main><h1>Product</h1><p>INR 999</p></main><iframe src="/secret-frame"></iframe>'
+        p=page(html,SITE+'products/frame')
+        c=collector({SITE+'robots.txt':response('User-agent: *\nDisallow: /secret-frame'),p.url:response(html)})
+        render_pages([p],c,Results())
+        self.assertEqual(len(p.rendered),2)
+        self.assertTrue(all(s['content_reliable'] for s in p.rendered.values()))
+        self.assertTrue(all(not s['absence_reliable'] for s in p.rendered.values()))
+        self.assertFalse(any(x['url']==SITE+'secret-frame' for x in c.log))
+
+    def test_cached_resources_render_after_network_request_cap(self):
+        html='<main><h1>Product</h1><p id="price">Waiting</p></main><script src="/price.js"></script>'
+        p=page(html,SITE+'products/cached')
+        c=collector({SITE+'robots.txt':response(''),p.url:response(html),SITE+'price.js':response('document.querySelector("#price").textContent="INR 999"',headers={'content-type':'application/javascript'})},max_requests=3)
+        c.fetch(p.url);c.fetch(SITE+'price.js')
+        self.assertEqual(len(c.log),3)
+        render_pages([p],c,Results())
+        self.assertEqual(len(c.log),3)
+        self.assertEqual(len(p.rendered),2)
+        self.assertTrue(all('INR 999' in sample['text'] and sample['content_reliable'] for sample in p.rendered.values()))
 
     def test_metadata_snapshot_contains_injected_directives(self):
         from auditlib.crawl import metadata_checks

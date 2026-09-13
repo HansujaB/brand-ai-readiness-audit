@@ -1,36 +1,44 @@
-"""Entity disambiguation using collected organization evidence."""
-from urllib.parse import urlsplit
+"""Identity evidence from the audited website only."""
 from .diagnostics import evidence, norm
 
 
-def organizations(page):
-    for node in page.nodes:
-        kinds = node.get('@type', [])
-        kinds = kinds if isinstance(kinds, list) else [kinds]
-        if any(kind in ('Organization', 'Corporation', 'LocalBusiness', 'Person') for kind in kinds):
-            yield node
+def published_brand(page):
+    """Prefer the site's published display name over a guessed company name."""
+    for selector in ('meta[property="og:site_name"]', 'meta[name="application-name"]'):
+        meta = page.soup.select_one(selector)
+        if meta and meta.get('content', '').strip():
+            return meta['content'].strip()
+    for kind in ('WebSite', 'Organization', 'Corporation', 'LocalBusiness'):
+        for node in page.nodes:
+            kinds = node.get('@type', [])
+            kinds = kinds if isinstance(kinds, list) else [kinds]
+            name = node.get('name')
+            if kind in kinds and isinstance(name, str) and name.strip():
+                return name.strip()
+    return None
 
 
-def identity_checks(pages, external_pages, brand, results):
-    own = [(p, node) for p in pages for node in organizations(p) if norm(node.get('name', '')) == norm(brand)]
-    competitors = []
-    for p in external_pages:
-        for node in organizations(p):
-            official = node.get('url')
-            if not isinstance(official, str) or not official.startswith(('http://', 'https://')):
-                continue
-            if norm(node.get('name', '')) == norm(brand) and all(urlsplit(official).hostname != urlsplit(site.url).hostname for site in pages):
-                competitors.append((p, node))
+def identity_checks(pages, brand, results):
+    observations = []
+    for page in pages:
+        for node in page.nodes:
+            kinds = node.get('@type', [])
+            kinds = kinds if isinstance(kinds, list) else [kinds]
+            if set(kinds) & {'Organization', 'Corporation', 'LocalBusiness'} and node.get('name'):
+                observations.append((page, node))
     if not pages:
         return
-    identified = any(n.get('address') or n.get('sameAs') or n.get('url') for _, n in own)
-    if competitors and not identified:
-        p, node = competitors[0]
-        items = [evidence(p.url, str(node), 'structured_data'), evidence(pages[0].url, pages[0].main_text[:700])]
-        results.suggest('identity.disambiguation', pages[0].url, str(node),
-                        'A sampled organization uses this name with another official domain. Clarify your organization, location, official domain and verified identity links.',
-                        'Verify both organizations and confirm that the brand page resolves to the intended entity.')
-        results.check('identity.resolution', pages[0].url, 'unknown', 'Same-name organization with a different official URL observed; relationship/ownership needs review.', items)
-    else:
-        results.check('identity.resolution', pages[0].url, 'pass' if own and identified else 'unknown',
-                      'Organization identifying context observed.' if own and identified else 'No verified identity collision; absent sameAs alone is not a defect.')
+    identifying = [(p,n) for p,n in observations if n.get('url') or n.get('address') or n.get('sameAs')]
+    results.check('identity.context', pages[0].url, 'pass' if identifying else 'unknown',
+        'Website organization identity evidence collected.' if identifying else 'No structured organization identity resolved; inspect visible about/contact content.',
+        [evidence(p.url, str(n), 'structured_data') for p,n in identifying[:3]])
+    by_id = {}
+    for page, node in observations:
+        key = node.get('@id')
+        if key:
+            by_id.setdefault(key, []).append((page,node))
+    for key, entries in by_id.items():
+        if len({norm(n['name']) for _,n in entries}) > 1:
+            results.review('identity.names', entries[0][0].url, 'Which organization name should this shared identifier use?',
+                'The same structured identifier has different names; trading names and legal names may explain the difference.',
+                [evidence(p.url, str(n), 'structured_data') for p,n in entries])

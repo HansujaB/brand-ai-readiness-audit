@@ -1,7 +1,7 @@
 {
   "name": "brand-ai-readiness-audit",
-  "version": "2.0.0",
-  "description": "Evidence-driven website diagnostics for machine access, fact context, claim consistency and visitor journeys, with explicit coverage and prioritized fixes.",
+  "version": "3.0.0",
+  "description": "Website-only audits of one country and language: access, fact context, content consistency and visitor questions, with evidence and prioritized actions.",
   "skills": [
     {
       "id": "audit-orchestrator",

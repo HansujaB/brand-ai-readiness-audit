@@ -1,55 +1,52 @@
-# Evidence report and input contract
+# Input and report contract
 
-Owner output for every command follows [owner.schema.json](owner.schema.json). --diagnostics-output preserves the detailed internal contract [report.schema.json](report.schema.json), described below. All commands use the same owner projection.
+## Website and locale
 
-Required contest fields remain: site, audited_at, summary and findings; each finding retains id, title, severity, evidence and suggested_action.priority. The optional diagnostics add check_id, entity, resource, root_cause, evidence_items, confidence_reason and suggested_action.verification. IDs derive from the stable defect key. Summary counts exclude proactive_suggestions and coverage gaps.
+The positional input is an absolute public HTTP(S) URL. Optional `--country IN --language en` selects one country and language; `--language en-IN` also supplies its region. Use ISO country codes and language tags. No outside-source manifest or web-search option exists.
 
-`checks` uses pass, fail, unknown, not_applicable or not_run. Pass means only the named check passed on the sampled evidence. `run_metadata` records actually collected pages, actual capabilities used, observed request log, content hashes, elapsed time and completed stages. `fact_extraction_tests`, `claims`, `claim_comparisons`, `visitor_journeys` and `local_rewrite_tests` retain the diagnostic detail.
+Without options, resolution uses the starting URL and its redirects, HTML language, `og:locale`, published alternate links and a country domain. A locale selector chooses one compatible published version deterministically, preferring `x-default`, then URL order. The internal evidence records the selection. A generic site publishing no country retains country `null` and the site default/global audience, rather than inventing a country. A missing language is likewise explicit. Ordinary unprefixed pages remain eligible. Conflicting locale paths and document languages are excluded. The requested version must be published by the website; unavailable versions remain an assessment limitation rather than producing mixed-market results.
 
-Each evidence item contains source_url, representation, quote, locator (optional) and observed_at. A quote is an observed span or a clearly named structured measurement, not an invented answer. Cache hashes support evidence provenance; the report does not embed full page bodies.
+All network requests stay on the supplied URL's exact origin: scheme, hostname and effective port. Documents also stay within the selected locale; shared assets can use other paths on the same origin. Other domains, subdomains, www aliases and scheme changes are excluded before address validation, including browser assets and redirects of pages or robots.txt. Default ports normalize to the same origin (for example, HTTPS port 443). The internal evidence records the allowed origin. Each permitted request remains robots checked, public-address validated and read-only. Browser direct network access is disabled; Chromium CDP receives the collector's responses, including each checked redirect hop. Unattached worker or frame traffic remains offline.
 
-## Fact input
+## Fact questions
 
-`--facts "question"` records a question without inventing evidence terms; it remains unknown unless supported. Supply explicit evidence terms through a fact file. For meaningful question-specific checks, use `--facts-file facts.json` with a JSON array:
+`--facts-file facts.json` accepts up to five evaluated question records:
 
 ```json
 [
   {
-    "question": "What does Starter cost in India?",
+    "question": "What does Starter cost and what commitment applies?",
     "source_url": "https://example.com/pricing",
-    "terms": ["₹999"],
+    "terms": ["INR 999", "Starter"],
     "context": {
       "entity": "Starter",
-      "value": "₹999",
-      "billing_period": "billed annually",
-      "region": "India"
+      "value": "INR 999",
+      "exceptions": "Available in India only. Billed annually."
     }
   }
 ]
 ```
 
-Context values must be literal supported source text. Unobserved context is unknown, not a site defect. The runner selects at most five supplied or inferred questions and discloses when fewer supported candidates exist. Automatic extraction currently targets money and return-policy spans; other site types should supply questions.
+Terms and context are literal website evidence, not words guessed from the question. A string passed through `--facts` has no evidence terms and remains unresolved until evidence supports it. Automatic candidates cover prices, duration policies and selected specification/service patterns. They preserve nearby applicable conditions and distribute questions across pages. Other facts and languages require the skill's source-grounded review procedure.
 
-## External search sample
+## Business-owner report
 
-The calling agent can search and supply `--search-results sources.json`:
+Write one `<company>_report.json` in the current directory, for example `ikea_report.json` or `lifestyle_report.json`. Use `--brand` when provided, otherwise the first accepted page's published site name, then its domain as fallback. The runner normalizes the company name to a safe lowercase filename with underscores and prints that name. The CLI has no output-path or diagnostics-export option. The public contract is [owner.schema.json](owner.schema.json):
 
-```json
-[
-  {"url":"https://news.example/story", "ownership":"independent", "group":"original-newsroom", "entity":"Starter"},
-  {"url":"https://syndication.example/copy", "ownership":"independent", "group":"original-newsroom", "entity":"Starter"},
-  {"url":"https://profile.example/brand", "ownership":"brand", "group":"brand", "entity":"Starter"}
-]
-```
+- Required top-level fields: `site`, `audited_at`, `summary`, `improvements_summary`, `findings`.
+- Summary: `total_findings`, `critical`, `high`, `medium`; include `low` when applicable (zero is also allowed).
+- Improvements summary: `total_improvements`, `critical`, `high`, `medium`, `low`. Count only the improvements included in this report, not discarded candidates, and include zeros when none are listed. These counts are separate from confirmed findings.
+- Each finding: `id`, `title`, `severity`, `evidence`, `suggested_action`. The action contains `summary`, `priority` and a short `verification` when available. Write two or three concise sentences describing the actual change and affected content, then one sentence explaining how to verify success.
+- Optional `pages` on a finding identifies affected pages. Merge repeated instances of the same fix while preserving different causes or entities.
+- Optional `improvements` contains up to three prioritized, supported improvements with `summary`, `priority`, a short `evidence` sentence, `page` and a short `verification` when available. These do not increase defect counts.
+- Optional `note` is one plain-language sentence only when an assessment limitation changes the conclusion. Zero verified findings must not imply an unassessed website is healthy.
 
-Ownership is brand, independent or unknown. Use one group for copies of the same reporting. Exact duplicate content fingerprints are additionally collapsed. A distinct domain alone is insufficient. Source URLs are fetched with robots enforcement; supplied snippets are not treated as verification. A capped import is not live search; web_search remains false; imported source coverage is recorded separately. The absence of external corroboration is not a defect. Source independence and semantic entity matching still need researcher review.
+Use brief business language. State what is wrong, where it occurs and what to change. Avoid code dumps, repeated quotations and long explanations. Keep full source spans, confidence, comparison details, detailed verification evidence, browser statistics, request logs and review queues internal. Do not add a coverage object or export another report. The Python `audit()` return value remains detailed for in-memory reasoning and validation against [report.schema.json](report.schema.json).
 
-## Runtime and limits
+Validate the actual filename printed by the runner, for example `python skills/audit-orchestrator/scripts/validate_report.py lifestyle_report.json --write` from the marketplace root. This recomputes both priority summaries and assigns sequential finding IDs. No separate validation artifact is created.
 
-The work budget is 270 seconds by default (configurable 1–270). All modes share it; the supervisor allows 10 seconds for graceful completion and a further 10-second shutdown/output reserve. Request cap: 80; decoded body cap: configurable with `--max-response-mb` (default 20 MB); total decoded download budget: `--max-download-mb` (default 100 MB); content redirects: five; PDF pages: twenty. These are operational bounds, not a measured guarantee on all machines. Reports preserve unfinished coverage if the supervisor stops the worker.
+## Runtime
 
-Browser lab timing uses intercepted/cache-delivered resources and is not representative field performance. Missing browser/search/OCR is explicit coverage. Training permissions remain distinct from search visibility. The collector implements merged user-agent groups, wildcard/end matching, longest-rule selection and Allow on ties, based on [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html). Crawler roles separate OpenAI search/training/user requests per [OpenAI documentation](https://developers.openai.com/api/docs/bots); Google-Extended and Applebot-Extended are content-use control tokens rather than separate fetching agents. Review this registry when providers change policy.
+There is one full workflow with no depth selector. Collection targets nine initial pages and up to three information follow-ups. Browser work targets three representative pages at desktop and mobile widths. Limits are 400 requests, 20 MB per response, 100 MB decoded downloads and at most 270 work seconds plus bounded supervisor shutdown. `--max-requests`, `--max-response-mb`, `--max-download-mb` and `--budget` adjust these limits. Sitemap discovery has a separate 2 MB allowance; ordinary links come first.
 
-Download budgets include robots, redirects, sitemaps and browser assets. Cache hits do not consume the budget again. Streaming may observe one additional 16 KiB chunk before a limit is detected. Incomplete bodies are never parsed or rendered: their URL, HTTP status, observed bytes and limit reason are reported. If no complete HTML page is available, dependent stages are not_run and excluded from stages_completed. Defaults are configurable operational allowances, not limits on what constitutes a valid website.
-
-Stage status distinguishes sampled, partial, not_run and not_applicable components. A sampled component is bounded coverage, not proof that the site is healthy. See [the research and change register](../../../docs/crawl-orchestrator-research.md) for source links, limits and regression mapping.
+The skill starts a single five-minute deadline before collection and normally gives the runner 210 seconds. All targeted review and final validation must fit the remainder. Do not create extra evidence files or launch a fresh broad audit after the runner finishes. Runtime limitations stay internal except for a short business-relevant note when necessary.

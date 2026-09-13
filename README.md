@@ -1,52 +1,58 @@
 # Brand AI readiness audit
 
-Four skills diagnose machine access, lost fact context, conflicting claims and observed visitor-journey obstacles. The Python runner shares one robots-enforcing evidence collector and emits a validated JSON report. It never modifies the audited site.
+A website-only Agent Skill Marketplace for one country and language per run. It audits machine access, fact context, consistency between the website's pages, and public visitor journeys. It produces one compact `<company>_report.json` for a business owner: problems, short evidence and prioritized actions. It does not fetch news articles, research outside publishers or modify the website.
 
 | Skill | Responsibility |
 |---|---|
-| audit-orchestrator | Shared evidence, coverage, deadlines, deduplication, prioritization and schema validation |
-| crawl-render-audit | Access, indexability, raw/rendered facts, media and markup consistency |
-| freshness-corroboration | Fact extraction stress tests, scoped claims, identity and external evidence |
-| engagement-audit | Visitor questions, visible actions, mobile obstacles and performance observations |
+| audit-orchestrator | Locale, representative collection, budgets, specialist composition, evidence review and final report |
+| crawl-render-audit | Robots/index controls, raw/rendered facts, media and structured data |
+| freshness-corroboration | Fact qualifications, website policy/price consistency, dates and organization context |
+| engagement-audit | Visitor questions, relevant information paths and desktop/mobile obstacles |
 
 ## Run
 
-Keep the whole marketplace together: standalone entrypoints import the root auditlib package.
+Keep the entire marketplace together; entrypoint scripts import `auditlib`.
 
 ```sh
 python -m pip install -r requirements.txt
-python skills/audit-orchestrator/scripts/run_audit.py https://example.com --brand "Example" --depth standard --output report.json
-```
-
-Optional browser/PDF capabilities:
-
-```sh
 python -m pip install -r requirements-optional.txt
 python -m playwright install chromium
+python skills/audit-orchestrator/scripts/run_audit.py https://example.com
 ```
 
-Use `--no-browser` to disable rendering. Use `--facts-file facts.json` for 3–5 question/terms/context records and `--search-results sources.json` for a researcher-grouped external sample. See [the input and report contract](skills/audit-orchestrator/references/schema.md). Every command emits a compact owner report; --diagnostics-output retains detailed evidence separately.
+The browser/PDF dependencies are optional. Use `--no-browser` for static evidence. To choose a particular version and company name:
 
-Quick/standard/deep sample up to 1/5/9 pages under one 270-second work budget. The supervisor enforces a whole-process deadline and preserves partial reports. `--budget 30` is useful for bounded smoke checks. A deeper sample does not remove the time limit. No five-minute performance guarantee is assumed without measurement.
+```sh
+python skills/audit-orchestrator/scripts/run_audit.py https://www.lifestylestores.com/in/en/ --brand Lifestyle --country IN --language en
+```
 
-## Evidence and limitations
+A regional starting URL also supplies scope. With neither a country nor language option, the audit resolves one version from the URL, redirects and website metadata/alternate links. It does not assume India. A generic site with no published country remains a single default/global version with country unknown; it still audits ordinary unprefixed pages. Detailed locale selection stays in the internal evidence.
 
-Owner findings contain ID, title, severity, evidence and suggested action, with a small coverage statement. Detailed evidence, verification steps, request logs, confidence and journey checks are in the optional diagnostics report. See skills/engagement-audit/references/implementation.md for the engagement review changes.
+Use `--facts-file` for source-supported questions/qualifications and `--pages` for relevant same-locale pages. See [the input and report contract](skills/audit-orchestrator/references/schema.md). The calling agent reviews important uncertainty within the same five-minute deadline. Detailed analysis stays internal.
 
-Training opt-outs do not become search defects. Missing schema, missing dates, absent sameAs, absent browser/search and a small site without a sitemap do not automatically produce findings. Raw/rendered checks compare substantive facts, not text length. Claim comparisons separate contradictions, historical differences, regional differences and insufficient scope.
+## Evidence and resource use
 
-Fact tests preserve headings/table headers and test supplied context. Automatic candidates currently focus on prices and return windows; other facts need explicit questions. Extractive drafts preserve source spans; this is not an independent answer-quality evaluation. External source imports support capped corroboration, ownership and syndicated-group deduplication; live search is performed by the calling agent, not silently claimed by the runner. Unknown ownership never establishes independence.
+The only delivered file is `<company>_report.json`. It follows the competition minimum: website, audit date, severity counts, and findings with a clear title, short evidence, specific prioritized action and a short verification step. An `improvements_summary` separately counts the listed improvements by priority, including zeros when there are none. Useful affected-page links, up to three improvements and a one-sentence assessment note are optional. Repeated instances requiring the same fix are grouped. There are no coverage objects, diagnostic exports, browser statistics or review queues in the business report. The CLI prints the chosen filename. `--brand` supplies the company name; otherwise the first accepted page's site metadata or structured website/organization name is used, with the domain as fallback. Names are converted to lowercase with underscores: IKEA gives `ikea_report.json`, Lifestyle gives `lifestyle_report.json`.
 
-Browser observations inspect desktop/mobile actions, accessible names and obstruction without clicks or form submission. English/Hindi candidate labels are supported; broader language semantics need review. Public navigation candidates do not prove a complete conversion journey. Returning-user personalization is unobserved. HTTP timing, instrumented browser lab metrics and real-user field metrics are separate. No actual bounce rate, commercial assistant ranking gain or complete semantic correctness is inferred.
+A URL-only invocation runs the full audit workflow; there is no depth selector. Collection targets up to nine initial pages, with up to three additional public information follow-ups. Browser collection prioritizes three representative pages with desktop and mobile observations. Sampling stops at the available time, request and download limits, and unfinished checks remain internal except for an important assessment note. Default limits are 400 HTTP requests, 20 MB per response, 100 MB decoded downloads and a 270-second work deadline. Normal links precede supplementary, locale-filtered sitemap discovery, which has its own 2 MB allowance. Configure limits with `--max-requests`, `--max-response-mb`, `--max-download-mb` and `--budget`.
 
-The network layer checks public addresses and redirects, disables environment credentials/proxies and cookies, and blocks transactional paths/non-GET browser traffic. Connections are pinned to validated public IP addresses while retaining TLS hostname verification. Redirected browser subresources that cannot be safely replayed are aborted and reported as partial coverage. The auditable request log supports prohibited-request checks.
+Every request stays on the supplied URL's exact origin: scheme, hostname and effective port. This includes pages, browser assets, robots.txt, sitemaps and every redirect hop. Other domains, subdomains and www aliases are excluded before address validation or network access; there is no CDN or advertising-host exception. Shared assets on the same origin may sit outside locale paths. The collector respects robots, validates public addresses, pins connections while retaining TLS hostname verification, and excludes authenticated/transactional actions. Direct Chromium networking is offline; CDP delivers collector responses and checks each redirect. Text, visual, absence and interaction reliability are separate, so a failed decorative image does not discard readable content. Lab timing remains instrumented, not field performance.
+
+Automatic reasoning is bounded. Structured prices require identifiable offers. Policy-duration comparisons retain quoted conditions and distinguish historical/regional differences. Other prose, language nuances, custom interactions and media may require the skill's targeted review. The audit does not measure actual AI citation share, rankings, bounce rates or complete commercial transactions.
+
+The five-minute deadline includes collection, any targeted review and final validation. The skill normally allocates 210 seconds to the runner and uses only the remaining time for review.
+
+Use the actual filename printed by the runner when validating; the example below uses Lifestyle.
 
 ## Validate
 
 ```sh
 python -m unittest discover -s tests -v
+python skills/audit-orchestrator/scripts/validate_report.py lifestyle_report.json
 ```
 
-Browser regression tests require Playwright and Chromium. Paired fixtures do not establish real-world generalization; use separate temporary live smoke reports. The obsolete extractor benchmark and generated reports were removed.
+Tests use offline fixtures and real Chromium with controlled responses. They cover website-only collection, locale selection, bounded discovery, browser redirect enforcement, cache reuse, resource-specific reliability, context loss, policy conflicts, report evidence and deadline recovery. Tests also verify that normal and interrupted runs leave only `<company>_report.json` in the output directory. Regression success does not establish accuracy on every unseen site.
 
-Download limits are configurable: `--max-response-mb 20 --max-download-mb 100` sets the default decimal-MB allowances for decoded response bodies. All HTTP/browser requests share the total budget and deadline; cache hits count once. Oversized responses are reported as incomplete coverage with observed byte counts, never site defects. Dependent stages are not_run when no complete page was collected.
+The original competition brief is retained in `ps.md`; the current implementation follows the requested website-only scope. [Research notes](research.md) distinguish source guidance from engineering choices.
+
+Browser origin exclusions are recorded internally with the affected resource. Missing scripts, styles or frames limit the observations that depend on them; exclusions are not automatically treated as harmless. Main-content links precede global navigation during discovery; new page purposes precede repeated samples. Text evidence is retained after navigation timeouts when an observed DOM remains available. English/Hindi absence heuristics do not generate missing-answer advice for other declared languages; those questions remain available for source-grounded skill review.

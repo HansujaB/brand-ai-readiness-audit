@@ -6,7 +6,7 @@
     "audited_at",
     "summary",
     "findings",
-    "coverage"
+    "improvements_summary"
   ],
   "additionalProperties": false,
   "properties": {
@@ -24,12 +24,30 @@
         "total_findings",
         "critical",
         "high",
-        "medium",
-        "low"
+        "medium"
       ],
-      "additionalProperties": {
-        "type": "integer",
-        "minimum": 0
+      "additionalProperties": false,
+      "properties": {
+        "total_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "critical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "findings": {
@@ -54,109 +72,128 @@
             "minLength": 1
           },
           "severity": {
-            "enum": [
-              "critical",
-              "high",
-              "medium",
-              "low"
-            ]
+            "$ref": "#/$defs/priority"
           },
           "evidence": {
             "type": "string",
             "minLength": 1
           },
           "suggested_action": {
-            "type": "object",
-            "required": [
-              "summary",
-              "priority"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "summary": {
-                "type": "string",
-                "minLength": 1
-              },
-              "priority": {
-                "enum": [
-                  "critical",
-                  "high",
-                  "medium",
-                  "low"
-                ]
-              }
+            "$ref": "#/$defs/action"
+          },
+          "pages": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
             }
           }
         }
       }
     },
-    "coverage": {
-      "type": "object",
-      "required": [
-        "status",
-        "pages_inspected",
-        "limitations"
-      ],
-      "properties": {
-        "status": {
-          "enum": [
-            "partial",
-            "sampled"
-          ]
-        },
-        "pages_inspected": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "limitations": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "components": {
-          "type": "object",
-          "additionalProperties": {
-            "enum": [
-              "pending",
-              "sampled",
-              "partial",
-              "not_run",
-              "not_applicable"
-            ]
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "suggested_actions": {
+    "improvements": {
       "type": "array",
+      "minItems": 1,
       "maxItems": 3,
       "items": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
           "summary",
           "priority",
-          "evidence"
+          "evidence",
+          "page"
         ],
+        "additionalProperties": false,
         "properties": {
           "summary": {
             "type": "string",
             "minLength": 1
           },
           "priority": {
-            "enum": [
-              "high",
-              "medium",
-              "low",
-              "critical"
-            ]
+            "$ref": "#/$defs/priority"
           },
           "evidence": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
+          },
+          "page": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verification": {
+            "type": "string",
+            "minLength": 1
           }
+        }
+      }
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1
+    },
+    "improvements_summary": {
+      "type": "object",
+      "required": [
+        "total_improvements",
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "total_improvements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "critical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "priority": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "summary",
+        "priority"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "verification": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

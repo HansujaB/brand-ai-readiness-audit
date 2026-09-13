@@ -1,5 +1,5 @@
 """Scoped index directives, canonical observations and identity-bound offer checks.
-See docs/crawl-orchestrator-research.md for sources and deliberate limits.
+See research.md for sources and deliberate limits.
 """
 import hashlib
 import re

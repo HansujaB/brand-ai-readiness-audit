@@ -65,10 +65,6 @@ class FreshnessTests(unittest.TestCase):
             compare_product_claims(extract_product_claims(page(original), 'Shop') + extract_product_claims(page(other, url='https://shop.example/other'), 'Shop'), results)
             self.assertEqual(results.findings, [])
 
-    def test_external_ownership_defaults_unknown(self):
-        claims = extract_product_claims(page(product()), 'Shop', {'url':'https://external.example'})
-        self.assertEqual(claims[0]['ownership'], 'unknown')
-
     def test_article_dates_bound_to_own_page(self):
         node = {'@type':'Article', 'url':'https://shop.example/products/coat', 'dateModified':'2026-09-01'}
         html = '<p>Last updated <time datetime="2026-09-02">September 2, 2026</time></p>'
@@ -85,21 +81,23 @@ class FreshnessTests(unittest.TestCase):
         check_article_dates(page({'@type':'Article', 'url':'https://shop.example/products/coat', 'dateModified':'2026-09-01'}, '<p>Published <time datetime="2020-01-01">2020</time></p>'), results)
         self.assertEqual(results.findings, [])
 
-    def test_compact_preserves_distinct_resources_and_zero_coverage(self):
+    def test_compact_groups_repeated_problem_and_explains_unassessed_site(self):
         results = Results()
         check_freshness(page(product(priceValidUntil='2020-01-01')), results)
         check_freshness(page(product(priceValidUntil='2020-01-01'), url='https://shop.example/other'), results)
         report = {'site':'https://shop.example', 'audited_at':'2026-09-10T00:00:00Z', 'findings':results.findings,
             'checks':[], 'run_metadata':{'pages_audited':['a','b'], 'capabilities_used':{}}}
         compact = owner_report(report)
-        self.assertEqual(compact['summary']['total_findings'], 2)
-        self.assertEqual(set(compact['findings'][0]), {'id','title','severity','evidence','suggested_action'})
+        self.assertEqual(compact['summary']['total_findings'], 1)
+        self.assertEqual(set(compact['findings'][0]), {'id','title','severity','evidence','suggested_action','pages'})
+        self.assertEqual(len(compact['findings'][0]['pages']), 2)
+        self.assertEqual(set(compact['findings'][0]['suggested_action']), {'summary','priority','verification'})
         self.assertNotIn('claims', compact)
         report['findings'] = []
         report['run_metadata']['pages_audited'] = []
         compact = owner_report(report)
-        self.assertEqual(compact['coverage']['status'], 'partial')
-        self.assertEqual(compact['coverage']['pages_inspected'], 0)
+        self.assertIn('could not be assessed',compact['note'])
+        self.assertNotIn('coverage',compact)
 
     def test_nested_hidden_elements_do_not_abort_page(self):
         p = page(html='<div style="display:none"><span style="color:red">Hidden</span></div><p>Visible</p>')
@@ -110,14 +108,6 @@ class FreshnessTests(unittest.TestCase):
         links = prioritize_links(['https://shop.example/products/a', 'https://shop.example/products/b', 'https://shop.example/about', 'https://shop.example/returns'])
         self.assertIn('https://shop.example/returns', links[:3])
         self.assertIn('https://shop.example/about', links[:3])
-
-    def test_duplicate_external_sources_do_not_inflate_confirmation(self):
-        own=extract_product_claims(page(product()), 'Shop')
-        first=extract_product_claims(page(product(), html='identical copy', url='https://news.example/a'), 'Shop', {'ownership':'independent','group':'wire'})
-        copy=extract_product_claims(page(product(), html='identical copy', url='https://other.example/a'), 'Shop', {'ownership':'independent','group':'mirror'})
-        results=Results();compare_product_claims(own+first+copy,results)
-        corroboration=[c for c in results.checks if c['check_id']=='claims.corroboration']
-        self.assertEqual(corroboration[0]['reason'],'Independent source groups: wire')
 
     def test_undated_different_prices_are_not_contradictions(self):
         a=extract_product_claims(page(product()), 'Shop')

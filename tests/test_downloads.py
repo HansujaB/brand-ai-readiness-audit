@@ -18,7 +18,7 @@ class DownloadTests(unittest.TestCase):
     def test_homepage_larger_than_old_cap_is_collected(self):
         html = '<!--' + 'x' * 2_100_000 + '--><main><h1>Documentation</h1><p>Public content.</p></main>'
         c = self.make_collector({SITE+'robots.txt': response(''), SITE: response(html)})
-        report = audit(SITE, collector=c, depth='quick', browser=False)
+        report = audit(SITE, collector=c, browser=False)
         self.assertEqual(report['run_metadata']['pages_audited'], [SITE])
         self.assertEqual(c.cache[SITE]['bytes_received'], len(html.encode()))
         self.assertEqual(report['run_metadata']['download_budget']['decoded_bytes_received'], c.downloaded_bytes)
@@ -38,7 +38,7 @@ class DownloadTests(unittest.TestCase):
         self.assertTrue(saved['observed_at'])
         self.assertEqual(report['run_metadata']['pages_audited'], [])
         completed = report['run_metadata']['stages_completed']
-        for stage in ('crawl', 'render', 'facts', 'claims', 'external', 'engagement'):
+        for stage in ('crawl', 'render', 'facts', 'claims', 'engagement'):
             self.assertNotIn(stage, completed)
             self.assertTrue(any(c['check_id'] == 'stage.'+stage and c['status'] == 'not_run' for c in report['checks']))
         self.assertEqual(report['findings'], [])
@@ -97,9 +97,8 @@ class DownloadTests(unittest.TestCase):
 
     def test_missing_browser_not_marked_completed(self):
         c = self.make_collector({SITE+'robots.txt': response(''), SITE: response('<main>Public content.</main>')})
-        report = audit(SITE, collector=c, browser=False, depth='quick')
+        report = audit(SITE, collector=c, browser=False)
         self.assertNotIn('render', report['run_metadata']['stages_completed'])
-        self.assertNotIn('external', report['run_metadata']['stages_completed'])
 
 
 if __name__ == '__main__':

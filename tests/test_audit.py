@@ -72,11 +72,11 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(c.fetch(SITE)['state'], 'blocked')
         self.assertNotIn(SITE+'secret', [x['url'] for x in c.log])
 
-    def test_cross_origin_redirect_checks_new_robots(self):
+    def test_cross_origin_redirect_never_fetches_new_robots(self):
         c = collector({SITE+'robots.txt': response(''), SITE: response('', 302, {'location': 'https://other.example/hidden'}),
                        'https://other.example/robots.txt': response('User-agent: *\nDisallow: /')})
-        self.assertEqual(c.fetch(SITE)['state'], 'blocked')
-        self.assertNotIn('https://other.example/hidden', [x['url'] for x in c.log])
+        self.assertEqual(c.fetch(SITE)['state'], 'out_of_scope')
+        self.assertEqual([x['url'] for x in c.log], [SITE+'robots.txt', SITE])
 
     def test_unknown_robots_fails_closed(self):
         for status in (429, 500, 503):
@@ -147,7 +147,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(len(merged[0]['evidence_items']), 2)
         self.assertEqual(merged[0]['id'], merge_findings(list(reversed(results.findings)))[0]['id'])
 
-    def test_missing_browser_and_search_not_findings(self):
+    def test_missing_browser_not_findings(self):
         c = collector({SITE+'robots.txt': response(''), SITE: response(fixture('no_schema'))})
         report = audit(SITE, collector=c, browser=False)
         validate_report(report)
@@ -163,23 +163,10 @@ class DiagnosticTests(unittest.TestCase):
         self.assertFalse(report['findings'])
 
 
-    def test_external_source_manifest_is_executed_and_capped(self):
-        external_url = 'https://news.example/price'
-        def identified_offer(price):
-            return '<script type="application/ld+json">' + json.dumps({'@type':'Product', 'name':'Starter', 'url':SITE+'starter', 'sku':'starter', 'offers':{'@type':'Offer', 'price':price, 'priceCurrency':'INR', 'eligibleRegion':'IN', 'validFrom':'2026-09-01'}}) + '</script>'
-        c = collector({SITE+'robots.txt': response(''), SITE: response(identified_offer('999')),
-                       'https://news.example/robots.txt': response(''), external_url: response(identified_offer('1299'))})
-        report = audit(SITE, brand='Acme', collector=c, browser=False,
-                       external=[{'url': external_url, 'ownership': 'independent', 'group': 'news', 'entity': 'Acme'}])
-        self.assertTrue(report['run_metadata']['capabilities_used']['external_sample'])
-        self.assertFalse(report['run_metadata']['capabilities_used']['web_search'])
-        self.assertTrue(any(f['check_id']=='claims.contradiction' for f in report['findings']))
-        self.assertTrue(any(c['source_url']==external_url for c in report['claims']))
-
     def test_broken_public_information_path(self):
         c = collector({SITE+'robots.txt': response(''), SITE: response('<main><h1>Home</h1><a href="/returns">Return policy</a></main>')})
         c.cache[SITE] = {**response('<main><h1>Product</h1><a href="/returns">Return policy</a></main><script type="application/ld+json">{"@type":"Product"}</script>'), 'url':SITE, 'state':'ok'}
-        report = audit(SITE, collector=c, browser=False, depth='quick')
+        report = audit(SITE, collector=c, browser=False)
         self.assertTrue(any(f['check_id']=='journey.broken_information_link' for f in report['findings']))
         self.assertEqual(sum(x['url']==SITE+'returns' for x in c.log), 1)
 

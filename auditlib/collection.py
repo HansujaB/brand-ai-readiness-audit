@@ -146,7 +146,7 @@ class DownloadLimit(Exception):
 
 
 class Collector:
-    def __init__(self, seconds=270, max_requests=80, transport=None, validator=public_url,
+    def __init__(self, seconds=270, max_requests=400, transport=None, validator=public_url,
                  max_response_bytes=20_000_000, max_download_bytes=100_000_000):
         self.started = time.monotonic()
         self.deadline = self.started + seconds
@@ -163,6 +163,10 @@ class Collector:
         self.session.mount('http://', PinnedAdapter())
         self.phase_deadline = self.deadline
         self.phase_request_limit = max_requests
+        self.phase_byte_limit = max_download_bytes
+        self.scope = None
+        self.allowed_origin = None
+        self.redirect_cache = {}
         self.transport = transport
         self.validator = validator
         self.cache, self.robots, self.log, self.last_request = {}, {}, [], {}
@@ -174,14 +178,16 @@ class Collector:
         return left
 
     @contextmanager
-    def allowance(self, seconds, requests):
-        previous = self.phase_deadline, self.phase_request_limit
-        self.phase_deadline = min(self.deadline, time.monotonic() + max(0, seconds))
-        self.phase_request_limit = min(self.max_requests, len(self.log) + max(0, requests))
+    def allowance(self, seconds, requests, bytes=None):
+        previous = self.phase_deadline, self.phase_request_limit, self.phase_byte_limit
+        self.phase_deadline = min(self.phase_deadline, time.monotonic() + max(0, seconds))
+        self.phase_request_limit = min(self.phase_request_limit, len(self.log) + max(0, requests))
+        if bytes is not None:
+            self.phase_byte_limit = min(self.phase_byte_limit, self.downloaded_bytes + bytes)
         try:
             yield
         finally:
-            self.phase_deadline, self.phase_request_limit = previous
+            self.phase_deadline, self.phase_request_limit, self.phase_byte_limit = previous
 
     def read_body(self, chunks, entry):
         """Count decoded bytes across all network responses, including failed bodies.
@@ -196,16 +202,32 @@ class Collector:
             self.downloaded_bytes += len(chunk)
             if self.downloaded_bytes > self.max_download_bytes:
                 raise DownloadLimit('total_download', self.max_download_bytes)
+            if self.downloaded_bytes > self.phase_byte_limit:
+                raise DownloadLimit('stage_download', self.phase_byte_limit)
             if entry['bytes_received'] > self.max_response_bytes:
                 raise DownloadLimit('per_response', self.max_response_bytes)
             body.extend(chunk)
         return bytes(body)
 
+    def allows_origin(self, url):
+        """Bind to the audit URL (or first request for standalone collection)."""
+        destination = origin(normalize(url))
+        if self.scope and not self.scope.same_origin(url):
+            return False
+        if self.allowed_origin is None:
+            self.allowed_origin = self.scope.origin if self.scope else destination
+        return destination == self.allowed_origin
+
     def wire(self, url):
+        # Covers robots redirects too; reject before DNS or any budget is spent.
+        if not self.allows_origin(url):
+            raise ValueError('Outside the supplied URL origin')
         self.remaining()
         url = self.validator(url)
         if self.downloaded_bytes >= self.max_download_bytes:
             raise BudgetExceeded('Global download budget exhausted; no further requests sent')
+        if self.downloaded_bytes >= self.phase_byte_limit:
+            raise BudgetExceeded('Stage download allowance exhausted')
         if len(self.log) >= min(self.max_requests, self.phase_request_limit):
             raise BudgetExceeded('Global request limit reached')
         started = time.monotonic()
@@ -266,14 +288,27 @@ class Collector:
                 self.robots[base] = Robots(status=0)
         return self.robots[base]
 
-    def fetch(self, url):
+    def fetch(self, url, purpose='page', follow_redirects=True):
         url = normalize(url)
+        if not self.allows_origin(url):
+            return {'url': url, 'state': 'out_of_scope', 'reason': 'Outside the supplied URL origin.'}
+        if self.scope and not self.scope.allows(url, purpose):
+            return {'url': url, 'state': 'out_of_scope', 'reason': 'Outside the selected website country/language.'}
+        if not follow_redirects and url in self.redirect_cache:
+            return self.redirect_cache[url]
         if url in self.cache:
-            return self.cache[url]
+            cached = self.cache[url]
+            if self.allows_origin(cached.get('url', url)) and (not self.scope or self.scope.allows(cached.get('url', url), purpose)):
+                return cached
+            return {'url': url, 'state': 'out_of_scope', 'reason': 'Cached destination is outside the supplied URL origin or selected locale.'}
         initial, visited = url, set()
         try:
             for _ in range(6):
                 self.remaining()
+                if not self.allows_origin(url):
+                    return {'url': url, 'state': 'out_of_scope', 'reason': 'Redirect leaves the supplied URL origin.'}
+                if self.scope and not self.scope.allows(url, purpose):
+                    return {'url': url, 'state': 'out_of_scope', 'reason': 'Redirect leaves the selected website locale.'}
                 url = self.validator(url)
                 if url in visited:
                     raise ValueError('Redirect loop')
@@ -296,6 +331,10 @@ class Collector:
                 if response['status'] in (301, 302, 303, 307, 308):
                     if not response['headers'].get('location'):
                         raise ValueError('Redirect has no Location')
+                    response['state'] = 'ok'
+                    self.redirect_cache[url] = response
+                    if not follow_redirects:
+                        return response
                     url = normalize(urljoin(url, response['headers']['location']))
                     continue
                 response['state'] = 'ok' if response['status'] < 400 else 'http_error'

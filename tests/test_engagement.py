@@ -114,7 +114,7 @@ class EngagementTests(unittest.TestCase):
 
     def test_material_percentage_and_bestseller_no_noise(self):
         r,_=self.inspect('<main><p>100% cotton. Bestseller dress.</p></main>')
-        self.assertFalse(r.suggestions)
+        self.assertFalse(any('citation' in x['suggested_action']['summary'].lower() or 'percentage' in x['suggested_action']['summary'].lower() for x in r.suggestions))
 
     def test_empty_accessible_name_found(self):
         r,_=self.inspect('<main><button style="width:50px;height:50px"></button></main>')
@@ -138,7 +138,7 @@ class EngagementTests(unittest.TestCase):
     def test_budget_failure_preserves_static_engagement(self):
         c=collector({SITE+'robots.txt':response(''),SITE:response('<main>Home</main>')})
         with patch('auditlib.runner.render_pages',side_effect=BudgetExceeded('render budget')):
-            report=audit(SITE,collector=c,component='engagement',depth='quick')
+            report=audit(SITE,collector=c,component='engagement')
         self.assertIn('engagement',report['run_metadata']['stages_completed'])
         self.assertTrue(any(c['check_id']=='journey.purpose' for c in report['checks']))
 

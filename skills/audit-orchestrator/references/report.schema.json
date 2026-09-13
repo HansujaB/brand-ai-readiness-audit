@@ -384,6 +384,28 @@
           }
         }
       }
+    },
+    "review_queue": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "source_url",
+          "question",
+          "reason",
+          "evidence_items",
+          "next_step"
+        ],
+        "properties": {
+          "evidence_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/evidence"
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

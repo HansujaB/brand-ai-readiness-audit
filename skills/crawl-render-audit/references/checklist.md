@@ -1,9 +1,12 @@
-# Access and rendering checks
+# Access and representation evidence
 
-- Robots rules: preserve exact matched directive, crawler role, URL and permission outcome. Do not fetch denied paths, including redirects/assets.
-- Indexability: record HTTP status, response headers and meta directives. Intentional exclusions need review.
-- Sitemap: malformed published XML is actionable; absence alone is not.
-- Rendering: compare facts/substantive sections, never text length or framework signatures. Record viewport and partial resource failures.
-- Markup: parse nested JSON-LD, microdata and RDFa; contextual missing-markup suggestions only. Compare the same entity before claiming disagreement.
-- PDF/media: extract text when possible; scanned/media-only claims require visual verification. Unsupported cases remain unknown.
-- Coverage: absent browser/parser or exhausted deadline is not_run, never a site finding.
+| Check | Evidence needed | Decision and follow-up |
+|---|---|---|
+| Access | URL, exact robots group/rule, status or index directive | Describe the affected crawler and scope; preserve intentional training policy. |
+| Discovery | Selected country/language and relevant normal links | Filter locale before downloading children. Skip costly supplementary maps once representative pages exist. |
+| Missing raw fact | Explicit question plus raw span search and observed rendered fact | Compare entity, units and qualifications. Use content reliability for positive observations; do not use incomplete rendering to establish absence. |
+| Visual problem | Stable element bounds, styles, viewport and blocker | An unrelated image failure does not invalidate the observation; failed relevant styles/fonts do. |
+| Markup | Identified entity and both visible and structured values | Confirm variant and offer scope. Suggest applicable markup only with a concrete visible fact and purpose. |
+| Media barrier | Named important fact, extraction result and visual evidence | Unavailable OCR/parser is a tool limitation; provide the next inspection step. |
+
+Use request logs and browser evidence to distinguish site responses, blocked actions, origin/locale exclusions, resource failures and budget exhaustion. The browser has no direct network access. Every collector-delivered resource, robots request and redirect stays on the supplied URL's exact origin and remains public-address validated and robots checked. Other hosts are excluded without a network request; do not infer that omitted dependencies were unnecessary. This makes lab timings instrumented observations.

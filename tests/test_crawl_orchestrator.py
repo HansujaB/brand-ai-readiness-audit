@@ -107,11 +107,11 @@ class CrawlRegressionTests(unittest.TestCase):
 
 
 class OrchestratorRegressionTests(unittest.TestCase):
-    def test_homepage_redirect_origin_and_aliases(self):
-        other='https://www.example.com/'
-        c=collector({SITE+'robots.txt':response(''),SITE:response('',302,{'location':other}),other+'robots.txt':response(''),other:response('<a href="/a">A</a><a href="/alias">Alias</a><a href="/b">B</a>'),other+'a':response('A'),other+'alias':response('',302,{'location':other+'a'}),other+'b':response('B')})
+    def test_same_origin_homepage_redirect_and_path_aliases(self):
+        home=SITE+'home'
+        c=collector({SITE+'robots.txt':response(''),SITE:response('',302,{'location':home}),home:response('<a href="/a">A</a><a href="/alias">Alias</a><a href="/b">B</a>'),SITE+'a':response('A'),SITE+'alias':response('',302,{'location':SITE+'a'}),SITE+'b':response('B')})
         r=audit(SITE,collector=c,browser=False)
-        self.assertEqual(set(r['run_metadata']['pages_audited']),{other,other+'a',other+'b'})
+        self.assertEqual(set(r['run_metadata']['pages_audited']),{home,SITE+'a',SITE+'b'})
 
     def test_failed_attempt_does_not_consume_page_slot(self):
         c=collector({SITE+'robots.txt':response(''),SITE:response('<a href="/missing">Missing</a><a href="/valid">Valid</a>'),SITE+'valid':response('Good')})
@@ -152,17 +152,18 @@ class OrchestratorRegressionTests(unittest.TestCase):
         merged=merge_findings(r.findings)
         self.assertEqual(len(merged),2)
         self.assertEqual(merged[0]['suggested_action']['priority'],'high')
-        report={'site':SITE,'audited_at':'now','findings':r.findings,'checks':[{'status':'not_run','check_id':'external.search'}],'run_metadata':{'pages_audited':[SITE]}}
+        report={'site':SITE,'audited_at':'now','findings':r.findings,'checks':[{'status':'not_run','check_id':'render.browser'}],'run_metadata':{'pages_audited':[SITE]}}
         compact=owner_report(report)
-        self.assertEqual(compact['coverage']['status'],'partial')
+        self.assertIn('could not be verified',compact['note'])
+        self.assertNotIn('coverage',compact)
         self.assertIn('Worse evidence',compact['findings'][0]['evidence'])
-        self.assertEqual([f['id'] for f in compact['findings']],[f['id'] for f in merged])
+        self.assertEqual([f['id'] for f in compact['findings']],['F-001','F-002'])
 
     def test_audit_exclusion_is_coverage_only(self):
         c=collector({SITE+'robots.txt':response('User-agent: BrandReadinessAudit\nDisallow: /')})
         r=audit(SITE,collector=c,browser=False)
         self.assertFalse(r['findings'])
-        self.assertEqual(owner_report(r)['coverage']['status'],'partial')
+        self.assertIn('could not be assessed',owner_report(r)['note'])
 
     def test_nested_diagnostic_schema_rejects_invalid_array_item(self):
         import jsonschema

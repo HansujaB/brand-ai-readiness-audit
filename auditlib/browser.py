@@ -1,5 +1,6 @@
 """Anonymous browser lab observations; all HTTP requests go through Collector."""
 import json
+import base64
 import re
 import os
 import time
@@ -54,53 +55,80 @@ def render_pages(pages, collector, results, enabled=True):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(timeout=min(15000, collector.remaining()*1000))
             try:
-                remaining_samples = len(pages) * 2
                 for page in pages:
+                    if not collector.allows_origin(page.url):
+                        results.check('render.browser', page.url, 'not_run', 'Outside the supplied URL origin.')
+                        continue
                     for viewport, size in [('desktop', {'width': 1365, 'height': 768}), ('mobile', {'width': 390, 'height': 844})]:
-                        if collector.remaining() < 3 or len(collector.log) >= collector.max_requests:
+                        if collector.remaining() < 5:
                             results.check('render.browser.' + viewport, page.url, 'not_run', 'Browser allowance exhausted; static engagement evidence retained.')
                             continue
                         started_requests, sample_started = len(collector.log), time.monotonic()
-                        request_allowance = max(1, (collector.max_requests - started_requests) // remaining_samples)
-                        time_allowance = max(2, collector.remaining() / remaining_samples)
-                        remaining_samples -= 1
+                        request_allowance = min(140, collector.max_requests - started_requests)
+                        time_allowance = min(35, max(2, collector.remaining() - 5))
                         context = browser.new_context(viewport=size, is_mobile=viewport == 'mobile', has_touch=viewport == 'mobile', user_agent=playwright.devices['Pixel 7' if viewport == 'mobile' else 'Desktop Chrome']['user_agent'], device_scale_factor=2 if viewport == 'mobile' else 1, service_workers='block', accept_downloads=False)
+                        # Chromium stays offline: every permitted HTTP response is supplied by
+                        # Collector. Targets not attached to this CDP session fail closed.
+                        context.set_offline(True)
+                        context.add_init_script(INIT)
+                        context.add_init_script("Object.defineProperty(navigator, 'onLine', {get:()=>true});")
+                        tab = context.new_page()
+                        session = context.new_cdp_session(tab)
+                        main_frame_id = session.send('Page.getFrameTree')['frameTree']['frame']['id']
                         blocked, errors = [], []
-                        def intercept(route):
-                            request = route.request
+                        def intercept(event):
+                            request = event['request']
+                            url = request['url']
+                            kind = event.get('resourceType', 'Other').lower()
+                            request_id = event['requestId']
+                            def abort(reason):
+                                blocked.append({'url':url, 'resource_type':kind, 'reason':reason,
+                                                'main_frame':event.get('frameId', main_frame_id) == main_frame_id})
+                                session.send('Fetch.failRequest', {'requestId':request_id, 'errorReason':'BlockedByClient'})
                             try:
-                                if request.method != 'GET' or not request.url.startswith(('http://', 'https://')):
-                                    blocked.append({'url': request.url, 'resource_type':request.resource_type, 'reason': 'Only HTTP GET is permitted'})
-                                    route.abort()
+                                if request['method'] != 'GET' or not url.startswith(('http://', 'https://')):
+                                    abort('Only anonymous HTTP GET is permitted')
                                     return
-                                if len(collector.log) >= min(collector.max_requests, started_requests + request_allowance) or time.monotonic() - sample_started > time_allowance:
-                                    blocked.append({'url':request.url, 'resource_type':request.resource_type, 'reason':'Per-viewport browser allowance exhausted'})
-                                    route.abort()
+                                if not collector.allows_origin(url):
+                                    abort('Outside the supplied URL origin')
                                     return
-                                response = collector.fetch(request.url)
+                                cached = normalize(url) in collector.cache or normalize(url) in collector.redirect_cache
+                                if (not cached and len(collector.log) >= min(collector.max_requests, started_requests + request_allowance)) or time.monotonic() - sample_started > time_allowance:
+                                    abort('Per-viewport browser allowance exhausted')
+                                    return
+                                response = collector.fetch(url, purpose='page' if kind == 'document' else 'asset', follow_redirects=False)
                                 if response['state'] not in ('ok', 'http_error'):
-                                    blocked.append({'url': request.url, 'resource_type':request.resource_type, 'reason': response.get('reason', response['state'])})
-                                    route.abort()
+                                    abort(response.get('reason', response['state']))
                                     return
-                                if normalize(response.get('url', request.url)) != normalize(request.url):
-                                    blocked.append({'url':request.url, 'resource_type':request.resource_type, 'reason':'Redirected browser request cannot preserve its response URL under this interception API; final evidence is cached at ' + response['url']})
-                                    route.abort()
-                                    return
-                                headers = {k:(', '.join(v) if isinstance(v,list) else v) for k,v in response['headers'].items() if k not in
-                                           ('content-encoding', 'content-length', 'transfer-encoding', 'set-cookie', 'connection')}
-                                route.fulfill(status=response['status'], headers=headers, body=response['body'])
+                                headers = [{'name':k, 'value':', '.join(v) if isinstance(v,list) else str(v)} for k,v in response['headers'].items() if k not in
+                                    ('content-encoding','content-length','transfer-encoding','set-cookie','connection')]
+                                session.send('Fetch.fulfillRequest', {'requestId':request_id, 'responseCode':response['status'],
+                                    'responseHeaders':headers, 'body':base64.b64encode(response['body']).decode('ascii')})
                             except Exception as exc:
-                                errors.append(str(exc))
-                                route.abort()
-                        context.route('**/*', intercept)
+                                try:
+                                    abort(str(exc))
+                                except Exception:
+                                    errors.append('Browser interception closed before response delivery.')
+                        session.on('Fetch.requestPaused', intercept)
+                        session.send('Fetch.enable', {'patterns':[{'urlPattern':'*','requestStage':'Request'}]})
                         if hasattr(context, 'route_web_socket'):
                             context.route_web_socket('**/*', lambda ws: ws.close())
-                        context.add_init_script(INIT)
-                        tab = context.new_page()
-                        tab.on('requestfailed', lambda request: errors.append(request.url + ': ' + str(request.failure)))
+                        def failed_request(request):
+                            try:
+                                is_main = request.frame == tab.main_frame
+                            except Exception:
+                                is_main = False
+                            blocked.append({'url':request.url, 'resource_type':request.resource_type,
+                                'reason':str(request.failure), 'main_frame':is_main})
+                        tab.on('requestfailed', failed_request)
                         tab.on('pageerror', lambda error: errors.append(str(error)))
                         try:
-                            tab.goto(page.url, wait_until='domcontentloaded', timeout=min(15000, collector.remaining()*1000))
+                            try:
+                                tab.goto(page.url, wait_until='commit', timeout=min(15000, collector.remaining()*1000))
+                            except Exception as exc:
+                                results.check('render.navigation.' + viewport, page.url, 'unknown',
+                                    'Navigation did not finish normally; attempting to retain observed DOM evidence: ' + str(exc)[:200])
+                            tab.wait_for_function('document.body !== null', timeout=min(5000, collector.remaining()*1000))
                             from .engagement import page_purpose
                             options = {'purpose':page_purpose(page), 'width':size['width']}
                             samples, stable, previous, consecutive = [], False, None, 0
@@ -110,7 +138,7 @@ def render_pages(pages, collector, results, enabled=True):
                                     break
                                 tab.wait_for_timeout(300)
                                 current = tab.evaluate(OBSERVE, options)
-                                signature = json.dumps([current['text'], current['actions']], sort_keys=True)
+                                signature = current['text']
                                 consecutive = consecutive + 1 if signature == previous else 0
                                 previous = signature
                                 if consecutive >= 3:
@@ -157,9 +185,13 @@ def render_pages(pages, collector, results, enabled=True):
                                         if item[key] not in merged or item.get('in_viewport'):
                                             merged[item[key]] = item
                                 sample[field] = list(merged.values())
-                            critical = [b for b in blocked if b.get('resource_type') in ('document','script','stylesheet','xhr','fetch')]
-                            sample['content_reliable'] = stable and not critical and not errors
-                            sample['reliable'] = sample['content_reliable'] and not any(b.get('resource_type') in ('image','font') for b in blocked)
+                            failed_types = {b.get('resource_type') for b in blocked if b.get('main_frame', True)}
+                            sample['content_reliable'] = stable and 'document' not in failed_types
+                            sample['visual_reliable'] = sample['content_reliable'] and not failed_types.intersection(('stylesheet', 'font'))
+                            sample['absence_reliable'] = sample['visual_reliable'] and not failed_types.intersection(('script','xhr','fetch')) and not errors and not sample['unsupported_frames']
+                            sample['interaction_reliable'] = sample['absence_reliable']
+                            sample['reliable'] = sample['absence_reliable']
+                            sample['stable'] = stable
                             if sample['unsupported_frames']:
                                 results.check('render.frames.' + viewport, page.url, 'unknown', 'Visible iframe contents were not inspected; main-document observations retain their own scope.')
                             sample['observation_scope'] = 'Initial viewport, two scroll positions, four Tab presses and up to two native disclosures; instrumented anonymous network.'
